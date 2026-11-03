@@ -16,10 +16,10 @@ export type LegalPageMeta = {
   description: string;
 };
 
-export const LEGAL_UPDATED = '21 October 2026';
+export const LEGAL_UPDATED = '3 November 2026';
 
 export const LEGAL_CONTACT = {
-  operator: 'Christian Harrison',
+  operator: 'Alexander Thorén',
   email: 'privacy@rs3groupiron.men',
   site: 'rs3groupiron.men',
 };
