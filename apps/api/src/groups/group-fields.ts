@@ -12,6 +12,7 @@ import { AppearanceTheme, GroupMode, GroupVisibility } from '@prisma/client';
 import { DEFAULT_SCOPE } from './group-access.service';
 import {
   MAX_BANK,
+  MAX_GROUP_NAME_LENGTH,
   MAX_INVENTORIES,
   MAX_NAME_LENGTH,
   MAX_PUBLIC_GROUPS_LIMIT,
@@ -111,14 +112,22 @@ export function normalizeUseDiscordAvatar(raw?: boolean): boolean {
   return raw !== false;
 }
 
-export function validateDisplayName(raw: string | undefined, label: string) {
+export function validateDisplayName(
+  raw: string | undefined,
+  label: string,
+  maxLength: number = MAX_NAME_LENGTH,
+) {
   const name = raw?.trim() ?? '';
-  if (name.length < 1 || name.length > MAX_NAME_LENGTH) {
+  if (name.length < 1 || name.length > maxLength) {
     throw new BadRequestException(
-      `${label} must be 1–${MAX_NAME_LENGTH} characters`,
+      `${label} must be 1–${maxLength} characters`,
     );
   }
   return name;
+}
+
+export function validateGroupName(raw: string | undefined) {
+  return validateDisplayName(raw, 'Group name', MAX_GROUP_NAME_LENGTH);
 }
 
 function isValidSkillNumber(value: unknown): value is number {

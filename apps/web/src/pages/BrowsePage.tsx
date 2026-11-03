@@ -9,7 +9,7 @@ import {
 import { LegalFooter } from '../components/LegalFooter';
 import { MarketingLayout, useFormTheme } from '../components/MarketingLayout';
 import { ThemeToggle } from '../components/ThemeToggle';
-import { MAX_NAME, PAGE_SEO, SITE_NAME } from '../lib/constants';
+import { MAX_GROUP_NAME, PAGE_SEO, SITE_NAME } from '../lib/constants';
 import { errorMessage } from '../lib/errors';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useLatestRequest } from '../hooks/useLatestRequest';
@@ -129,7 +129,7 @@ function SearchField({ query, onQuery, onSubmitFirst }: SearchFieldProps) {
       <input
         type="search"
         value={query}
-        maxLength={MAX_NAME}
+        maxLength={MAX_GROUP_NAME}
         placeholder="Search a group name"
         aria-label="Search a group name"
         spellCheck={false}

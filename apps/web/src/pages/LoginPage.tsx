@@ -6,7 +6,7 @@ import { DiscoverLink } from '../components/DiscoverLink';
 import { LegalFooter } from '../components/LegalFooter';
 import { MarketingLayout, useFormTheme } from '../components/MarketingLayout';
 import { ThemeToggle } from '../components/ThemeToggle';
-import { MAX_NAME, PAGE_SEO } from '../lib/constants';
+import { MAX_GROUP_NAME, PAGE_SEO } from '../lib/constants';
 import { writeGroupSession } from '../lib/groupSession';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -19,7 +19,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const formTheme = useFormTheme();
   const [params] = useSearchParams();
-  const prefilled = (params.get('name') ?? '').slice(0, MAX_NAME);
+  const prefilled = (params.get('name') ?? '').slice(0, MAX_GROUP_NAME);
   const [name, setName] = useState(prefilled);
   const [token, setToken] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -32,8 +32,8 @@ export function LoginPage() {
     const groupName = name.trim();
     const groupToken = token.trim();
 
-    if (groupName.length < 1 || groupName.length > MAX_NAME) {
-      setError(`Group name must be 1–${MAX_NAME} characters`);
+    if (groupName.length < 1 || groupName.length > MAX_GROUP_NAME) {
+      setError(`Group name must be 1–${MAX_GROUP_NAME} characters`);
       return;
     }
     if (!groupToken) {
@@ -68,11 +68,11 @@ export function LoginPage() {
             <CountedField
               label="GROUP NAME"
               value={name}
-              max={MAX_NAME}
+              max={MAX_GROUP_NAME}
               disabled={isBusy}
               autoFocus={!prefilled}
               autoComplete="username"
-              placeholder={`1–${MAX_NAME} characters`}
+              placeholder={`1–${MAX_GROUP_NAME} characters`}
               onChange={setName}
             />
 

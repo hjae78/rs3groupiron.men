@@ -12,7 +12,7 @@ import { MarketingLayout, useFormTheme } from '../components/MarketingLayout';
 import { SetupVideoFrame } from '../components/SetupVideoFrame';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { TokenReveal } from '../components/TokenReveal';
-import { MAX_NAME, MAX_SLOTS, MIN_SLOTS, PAGE_SEO, TOKEN_HINT } from '../lib/constants';
+import { MAX_GROUP_NAME, MAX_NAME, MAX_SLOTS, MIN_SLOTS, PAGE_SEO, TOKEN_HINT } from '../lib/constants';
 import { DEFAULT_SHARES, SHARE_FIELDS } from '../lib/groupShares';
 import { writeGroupSession } from '../lib/groupSession';
 import { useAsyncAction } from '../hooks/useAsyncAction';
@@ -89,8 +89,8 @@ export function GetStartedPage() {
 
   function validateDetails(): string[] | null {
     const groupName = name.trim();
-    if (groupName.length < 1 || groupName.length > MAX_NAME) {
-      setError(`Group name must be 1–${MAX_NAME} characters`);
+    if (groupName.length < 1 || groupName.length > MAX_GROUP_NAME) {
+      setError(`Group name must be 1–${MAX_GROUP_NAME} characters`);
       return null;
     }
 
@@ -294,12 +294,12 @@ function DetailsPage({
             label=""
             className="hero-field--grow"
             value={name}
-            max={MAX_NAME}
+            max={MAX_GROUP_NAME}
             disabled={busy}
             autoFocus
             autoComplete="off"
             aria-label="Group name"
-            placeholder={`1–${MAX_NAME} characters`}
+            placeholder={`1–${MAX_GROUP_NAME} characters`}
             onChange={onName}
           />
         </div>

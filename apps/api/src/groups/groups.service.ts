@@ -77,6 +77,7 @@ import {
   sharesPatch,
   sharesToColumns,
   validateDisplayName,
+  validateGroupName,
   validateInventoriesPayload,
   validateSkillsPayload,
 } from './group-fields';
@@ -239,7 +240,7 @@ export class GroupsService {
   }
 
   async createGroup(body: CreateGroupBody) {
-    const name = validateDisplayName(body.name, 'Group name');
+    const name = validateGroupName(body.name);
 
     const existing = await this.access.findGroup(name);
     if (existing) throw new ConflictException('Group already exists');
@@ -2104,7 +2105,7 @@ export class GroupsService {
     if (body.visibility) data.visibility = parseVisibility(body.visibility);
 
     if (body.name !== undefined) {
-      const nextName = validateDisplayName(body.name, 'Group name');
+      const nextName = validateGroupName(body.name);
       if (nextName !== group.name) {
         // Case-only renames are allowed (same nameKey, same row).
         const taken = await this.access.findGroup(nextName);

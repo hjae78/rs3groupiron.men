@@ -73,7 +73,8 @@ export type StoreFile = {
 export const SHARED_MEMBER = '@SHARED';
 export const MIN_MEMBERS = 2;
 export const MAX_MEMBERS = 5;
-export const MAX_NAME_LENGTH = 16;
+export const MAX_NAME_LENGTH = 12;
+export const MAX_GROUP_NAME_LENGTH = 20;
 
 /** Upper bound on any incoming name string before service-level validation. */
 const MAX_INPUT_NAME = 50;
