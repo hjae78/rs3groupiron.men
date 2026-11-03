@@ -23,7 +23,7 @@ export const PANEL_OPACITY_STEP = 2;
 export const DEFAULT_PANEL_OPACITY = 94;
 
 export const DEFAULT_UI_PREFS: UiPrefs = {
-  themePref: 'system',
+  themePref: 'dark',
   dir: 'a',
   navFull: false,
   navHide: false,
