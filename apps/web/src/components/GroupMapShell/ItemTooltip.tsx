@@ -8,7 +8,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { formatGp, getItemPrices } from '../../lib/itemPrices';
-import { formatQty, type GroupItem } from '../../lib/items';
+import { formatQty, qtyColorClass, type GroupItem } from '../../lib/items';
 import { anyMenuOpen, subscribeMenuState } from '../../lib/menuState';
 
 export type ItemTooltipState = {
@@ -98,7 +98,9 @@ export function ItemTooltip({
         <span className="gms-item-tip-title">{item.name}</span>
         {/* Slots abbreviate a stack to "2M", so the exact count belongs here. */}
         {item.quantity > 1 && (
-          <span className="gms-item-tip-amt">{formatQty(item.quantity)}</span>
+          <span className={`gms-item-tip-amt ${qtyColorClass(item.quantity)}`}>
+            {formatQty(item.quantity)}
+          </span>
         )}
       </div>,
       document.body,
@@ -109,8 +111,8 @@ export function ItemTooltip({
     <div className="gms-item-tip" style={style} role="tooltip" ref={ref}>
       <span className="gms-item-tip-title">{item.name}</span>
       <span className="gms-item-tip-total">
-        {formatQty(item.quantity)} total · GE {formatGp(prices.ge * item.quantity)} · Alch{' '}
-        {formatGp(prices.alch * item.quantity)}
+        <span className={qtyColorClass(item.quantity)}>{formatQty(item.quantity)}</span> total ·
+        GE {formatGp(prices.ge * item.quantity)} · Alch {formatGp(prices.alch * item.quantity)}
       </span>
       {item.shares.length > 0 && (
         <ul className="gms-item-tip-rows">
@@ -126,7 +128,9 @@ export function ItemTooltip({
                   />
                   {share.player}
                 </span>
-                <span className="gms-item-tip-qty">{formatQty(share.quantity)}</span>
+                <span className={`gms-item-tip-qty ${qtyColorClass(share.quantity)}`}>
+                  {formatQty(share.quantity)}
+                </span>
                 <span className="gms-item-tip-pct">{pct}%</span>
                 <span className="gms-item-tip-bar" aria-hidden>
                   <span style={{ width: `${pct}%`, background: colorOf(share.player) }} />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useUiPrefs } from '../../hooks/useUiPrefs';
 import type { ItemsView } from '../../lib/uiPrefs';
 import { useUrlState, useUrlText } from '../../hooks/useUrlState';
@@ -7,7 +7,9 @@ import {
   aggregateGroupItems,
   colorForName,
   formatQty,
+  formatQtyCompact,
   ITEM_SOURCES,
+  qtyColorClass,
   type GroupItem,
   type ItemSource,
   type WireMember,
@@ -47,13 +49,14 @@ const VIEW_OPTIONS: Array<SegmentedOption<Exclude<ItemsView, ''>>> = [
   { id: 'list', label: 'List' },
 ];
 
-type Scope = 'all' | ItemSource;
+type Scope = 'all' | ItemSource | 'pouch';
 
 const SCOPES: Array<DropdownOption<Scope>> = [
   { id: 'all', label: 'All items' },
   { id: 'bank', label: 'Banks' },
   { id: 'inventory', label: 'Inventories' },
   { id: 'equipment', label: 'Equipment' },
+  { id: 'pouch', label: 'Pouch' },
 ];
 
 const SCOPE_VALUES: Scope[] = SCOPES.map((s) => s.id);
@@ -64,7 +67,17 @@ const SCOPE_TITLE: Record<Scope, { all: string; one: string }> = {
   bank: { all: 'All banks', one: 'bank' },
   inventory: { all: 'All inventories', one: 'inventory' },
   equipment: { all: 'All equipment', one: 'equipment' },
+  pouch: { all: 'All pouches', one: 'pouch' },
 };
+
+function scopeSources(scope: Scope): {
+  sources: ItemSource[];
+  includePouch: boolean;
+} {
+  if (scope === 'all') return { sources: ITEM_SOURCES, includePouch: true };
+  if (scope === 'pouch') return { sources: [], includePouch: true };
+  return { sources: [scope], includePouch: false };
+}
 
 /** Label the aggregation uses for the group's own bank. */
 const SHARED_BANK = 'Shared bank';
@@ -128,14 +141,10 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
   const sharedOnly = playerFilter === SHARED_BANK;
   const effectiveScope: Scope = sharedOnly ? 'bank' : scope;
 
-  const items = useMemo(
-    () =>
-      aggregateGroupItems(
-        rawMembers,
-        effectiveScope === 'all' ? ITEM_SOURCES : [effectiveScope],
-      ),
-    [rawMembers, effectiveScope, itemNamesVersion, gePricesVersion, alchVersion],
-  );
+  const items = useMemo(() => {
+    const { sources, includePouch } = scopeSources(effectiveScope);
+    return aggregateGroupItems(rawMembers, sources, includePouch);
+  }, [rawMembers, effectiveScope, itemNamesVersion, gePricesVersion, alchVersion]);
 
   const colorOf = useMemo(() => {
     const byName = new Map(members.map((m) => [m.name, m.color]));
@@ -327,6 +336,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
                 item={item}
                 priceMode={priceMode}
                 colorOf={colorOf}
+                compactQty={effectiveScope === 'all'}
               />
             ))}
           </div>
@@ -341,6 +351,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
                 priceMode={priceMode}
                 onHover={tooltip.show}
                 onLeave={tooltip.hide}
+                compactQty={effectiveScope === 'all'}
               />
             ))}
           </div>
@@ -366,6 +377,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
                   colorOf={colorOf}
                   onHover={tooltip.show}
                   onLeave={tooltip.hide}
+                  compactQty={effectiveScope === 'all'}
                 />
               ))}
             </tbody>
@@ -441,12 +453,15 @@ function ItemCard({
   item,
   priceMode,
   colorOf,
+  compactQty,
 }: {
   item: GroupItem;
   priceMode: PriceMode;
   colorOf: (name: string) => string;
+  compactQty: boolean;
 }) {
   const prices = displayPrices(item, priceMode);
+  const qty = compactQty ? formatQtyCompact : formatQty;
   return (
     <article className="gms-item-card">
       <div className="gms-item-card-row">
@@ -459,7 +474,9 @@ function ItemCard({
             GE <span>{formatGp(prices.ge)}</span> · Alch <span>{formatGp(prices.alch)}</span>
           </p>
         </div>
-        <span className="gms-item-card-qty">{formatQty(item.quantity)}</span>
+        <span className={`gms-item-card-qty ${qtyColorClass(item.quantity)}`}>
+          {qty(item.quantity)}
+        </span>
       </div>
       <ShareBars item={item} colorOf={colorOf} />
     </article>
@@ -495,7 +512,9 @@ function ShareBars({
               }}
             />
           </span>
-          <span className="gms-item-share-qty">{formatQty(share.quantity)}</span>
+          <span className={`gms-item-share-qty ${qtyColorClass(share.quantity)}`}>
+            {formatQty(share.quantity)}
+          </span>
         </li>
       ))}
     </ul>
@@ -507,13 +526,16 @@ function ItemTile({
   priceMode,
   onHover,
   onLeave,
+  compactQty,
 }: {
   item: GroupItem;
   priceMode: PriceMode;
   onHover: (item: GroupItem, rect: DOMRect) => void;
   onLeave: () => void;
+  compactQty: boolean;
 }) {
   const prices = displayPrices(item, priceMode);
+  const qty = compactQty ? formatQtyCompact : formatQty;
   return (
     <article
       className="gms-item-tile"
@@ -524,19 +546,21 @@ function ItemTile({
         <ItemIcon itemId={item.id} quantity={item.quantity} />
       </span>
       <h3 className="gms-item-tile-name">{item.name}</h3>
-      <TilePill kind="qty" value={formatQty(item.quantity)} />
-      <TilePill kind="ge" value={formatGp(prices.ge)} />
-      <TilePill kind="alch" value={formatGp(prices.alch)} />
+      <TilePill kind="qty">
+        <span className={qtyColorClass(item.quantity)}>{qty(item.quantity)}</span>
+      </TilePill>
+      <TilePill kind="ge">{formatGp(prices.ge)}</TilePill>
+      <TilePill kind="alch">{formatGp(prices.alch)}</TilePill>
     </article>
   );
 }
 
-function TilePill({ kind, value }: { kind: BadgeKind; value: string }) {
+function TilePill({ kind, children }: { kind: BadgeKind; children: ReactNode }) {
   const meta = BADGES[kind];
   return (
     <span className={`gms-tile-pill gms-tile-pill--${kind}`} title={meta.label}>
       <img src={meta.src} alt="" width={14} height={14} />
-      {value}
+      {children}
     </span>
   );
 }
@@ -547,27 +571,27 @@ function ItemRow({
   colorOf,
   onHover,
   onLeave,
+  compactQty,
 }: {
   item: GroupItem;
   priceMode: PriceMode;
   colorOf: (name: string) => string;
   onHover: (item: GroupItem, rect: DOMRect) => void;
   onLeave: () => void;
+  compactQty: boolean;
 }) {
   const prices = displayPrices(item, priceMode);
+  const qty = compactQty ? formatQtyCompact : formatQty;
   // Past a couple of holders the exact numbers stop fitting, so the line
   // abbreviates and the full figures move to the hover title.
   const compact = item.shares.length > 2;
-  const heldBy = item.shares
-    .map((share) => `${share.player} ${compact ? formatGp(share.quantity) : formatQty(share.quantity)}`)
-    .join(' · ');
   return (
     <tr className="gms-items-row">
       <th scope="row" className="gms-items-cell-name">
         <ItemIcon itemId={item.id} quantity={item.quantity} />
         <span>{item.name}</span>
       </th>
-      <td>{formatQty(item.quantity)}</td>
+      <td className={qtyColorClass(item.quantity)}>{qty(item.quantity)}</td>
       <td>{formatGp(prices.ge)}</td>
       <td>{formatGp(prices.alch)}</td>
       <td
@@ -575,7 +599,19 @@ function ItemRow({
         onMouseLeave={onLeave}
       >
         <span className="gms-items-held">
-          <span className="gms-items-held-text">{heldBy}</span>
+          <span className="gms-items-held-text">
+            {item.shares.map((share, i) => (
+              <span key={share.player}>
+                {i > 0 && ' · '}
+                {share.player}{' '}
+                {compact ? (
+                  formatGp(share.quantity)
+                ) : (
+                  <span className={qtyColorClass(share.quantity)}>{qty(share.quantity)}</span>
+                )}
+              </span>
+            ))}
+          </span>
           <SplitBar item={item} colorOf={colorOf} inline />
         </span>
       </td>

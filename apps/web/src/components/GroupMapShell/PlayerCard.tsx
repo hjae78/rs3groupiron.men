@@ -4,6 +4,7 @@ import {
   formatQty,
   formatStack,
   itemName,
+  qtyColorClass,
   type GroupItem,
   type ItemStack,
   type PlayerView,
@@ -474,13 +475,15 @@ function MoneyPouch({ total, onHover, onLeave }: SlotHover & { total: number }) 
     >
       <img
         key={bump}
-        className="gms-money-pouch-icon"
+        className={
+          bump > 0 ? 'gms-money-pouch-icon gms-money-pouch-icon--bump' : 'gms-money-pouch-icon'
+        }
         src="/sprites/money_pouch.png"
         alt="Money pouch"
         width={20}
         height={20}
       />
-      <strong>{formatQty(shown)}</strong>
+      <strong className={qtyColorClass(shown)}>{formatQty(shown)}</strong>
       <span className="gms-coin-fx" aria-hidden>
         {deltas.map((delta) => (
           <span
@@ -569,7 +572,11 @@ function ItemSlot({ stack, onHover, onLeave }: SlotHover & { stack: ItemStack })
       onMouseLeave={onLeave}
     >
       <ItemIcon itemId={stack.id} quantity={stack.quantity} />
-      {stack.quantity > 1 && <span className="gms-inv-qty">{formatStack(stack.quantity)}</span>}
+      {stack.quantity > 1 && (
+        <span className={`gms-inv-qty ${qtyColorClass(stack.quantity)}`}>
+          {formatStack(stack.quantity)}
+        </span>
+      )}
     </div>
   );
 }

@@ -495,23 +495,47 @@
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
-/* Stack counts sit on top of the artwork, so they carry a hard drop shadow to
-   stay readable over a light icon the way the game draws them. The shadow is
-   theme-independent: the numbers are always light-on-art. */
 .gms-inv-qty {
   position: absolute;
   top: 1px;
   left: 3px;
   z-index: 1;
   color: var(--onSprite);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   line-height: 1;
   white-space: nowrap;
   pointer-events: none;
   text-shadow:
-    0 1px 1px rgba(0, 0, 0, 0.95),
-    0 0 2px rgba(0, 0, 0, 0.8);
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000,
+    0 0 3px rgba(0, 0, 0, 0.9);
+}
+
+.gms-qty--yellow {
+  color: var(--qtyYellow) !important;
+}
+
+.gms-qty--white {
+  color: var(--qtyWhite) !important;
+}
+
+.gms-qty--green {
+  color: var(--qtyGreen) !important;
+}
+
+.gms-qty--blue {
+  color: var(--qtyBlue) !important;
+}
+
+.gms-qty--purple {
+  color: var(--qtyPurple) !important;
+}
+
+.gms-qty--orange {
+  color: var(--qtyOrange) !important;
 }
 
 .gms-inv-footer {
@@ -544,6 +568,9 @@
   width: 18px;
   height: 18px;
   flex: none;
+}
+
+.gms-money-pouch-icon--bump {
   animation: gpBump 0.45s ease-out;
 }
 
@@ -576,7 +603,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gms-money-pouch-icon {
+  .gms-money-pouch-icon--bump {
     animation: none;
   }
 

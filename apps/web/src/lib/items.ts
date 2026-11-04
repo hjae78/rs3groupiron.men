@@ -474,8 +474,18 @@ const SOURCE_FIELD: Record<ItemSource, keyof WireMember> = {
 export function aggregateGroupItems(
   members: WireMember[],
   sources: ReadonlyArray<ItemSource> = ITEM_SOURCES,
+  includePouch = false,
 ): GroupItem[] {
   const map = new Map<number, Map<string, number>>();
+
+  const add = (id: number, label: string, quantity: number) => {
+    let byPlayer = map.get(id);
+    if (!byPlayer) {
+      byPlayer = new Map();
+      map.set(id, byPlayer);
+    }
+    byPlayer.set(label, (byPlayer.get(label) ?? 0) + quantity);
+  };
 
   for (const member of members) {
     const label = member.name === SHARED ? 'Shared bank' : member.name;
@@ -484,14 +494,11 @@ export function aggregateGroupItems(
       const stacks = unpackPairs(
         member[SOURCE_FIELD[source]] as number[] | undefined,
       );
-      for (const stack of stacks) {
-        let byPlayer = map.get(stack.id);
-        if (!byPlayer) {
-          byPlayer = new Map();
-          map.set(stack.id, byPlayer);
-        }
-        byPlayer.set(label, (byPlayer.get(label) ?? 0) + stack.quantity);
-      }
+      for (const stack of stacks) add(stack.id, label, stack.quantity);
+    }
+    if (includePouch) {
+      const pouch = moneyPouchTotal(member);
+      if (pouch > 0) add(COINS, label, pouch);
     }
   }
 
@@ -517,12 +524,43 @@ export function formatQty(n: number) {
   return n.toLocaleString();
 }
 
-/**
- * Stack count as the game draws it in a slot: plain below 100K, then K, then M.
- * Keeps the overlay inside a 38px slot without truncating.
- */
+export type QtyColor = 'yellow' | 'white' | 'green' | 'blue' | 'purple' | 'orange';
+
+const QTY_TIERS: ReadonlyArray<{
+  threshold: number;
+  unit: number;
+  suffix: string;
+  color: QtyColor;
+}> = [
+  { threshold: 10_000_000_000_000_000, unit: 1_000_000_000_000_000, suffix: 'Q', color: 'orange' },
+  { threshold: 10_000_000_000_000, unit: 1_000_000_000_000, suffix: 'T', color: 'purple' },
+  { threshold: 10_000_000_000, unit: 1_000_000_000, suffix: 'B', color: 'blue' },
+  { threshold: 10_000_000, unit: 1_000_000, suffix: 'M', color: 'green' },
+  { threshold: 100_000, unit: 1_000, suffix: 'K', color: 'white' },
+];
+
+export function formatQtyCompact(n: number) {
+  if (n < 0) return '';
+  for (const tier of QTY_TIERS) {
+    if (n >= tier.threshold) return `${Math.floor(n / tier.unit).toLocaleString()}${tier.suffix}`;
+  }
+  return formatQty(n);
+}
+
+export function qtyColor(n: number): QtyColor {
+  for (const tier of QTY_TIERS) {
+    if (n >= tier.threshold) return tier.color;
+  }
+  return 'yellow';
+}
+
+export function qtyColorClass(n: number) {
+  return `gms-qty--${qtyColor(n)}`;
+}
+
 export function formatStack(n: number) {
-  if (n < 100_000) return String(n);
-  if (n < 10_000_000) return `${Math.floor(n / 1000)}K`;
-  return `${Math.floor(n / 1_000_000)}M`;
+  for (const tier of QTY_TIERS) {
+    if (n >= tier.threshold) return `${Math.floor(n / tier.unit)}${tier.suffix}`;
+  }
+  return String(n);
 }
