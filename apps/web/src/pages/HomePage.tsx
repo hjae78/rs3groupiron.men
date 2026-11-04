@@ -9,10 +9,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 export function HomePage() {
   useDocumentTitle(null, { canonicalPath: '/' });
-  const hasSession = readGroupSession() != null;
-  const groupCta = hasSession
-    ? { to: '/group', label: 'Go to group' }
-    : { to: '/login', label: 'Login' };
+  const hasGroupSession = readGroupSession() != null;
 
   return (
     <MarketingLayout
@@ -24,7 +21,13 @@ export function HomePage() {
       }
     >
       <div className="hero-hello hero-stagger">
-        <img className="hero-logo" src="/logo-512.png" alt="" width={150} height={150} />
+        <img
+          className="hero-logo"
+          src="/logo-512.png"
+          alt=""
+          width={150}
+          height={150}
+        />
 
         <span className="hero-kicker">RUNESCAPE 3</span>
 
@@ -45,9 +48,15 @@ export function HomePage() {
           <Link className="hero-btn" to="/demo">
             Demo
           </Link>
-          <Link className="hero-btn" to={groupCta.to}>
-            {groupCta.label}
-          </Link>
+          {hasGroupSession ? (
+            <Link className="hero-btn" to="/group">
+              Go to group
+            </Link>
+          ) : (
+            <Link className="hero-btn" to="/login">
+              Login
+            </Link>
+          )}
         </div>
 
         <div className="hero-links">

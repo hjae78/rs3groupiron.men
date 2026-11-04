@@ -1,4 +1,5 @@
 import { lookupItemName } from './itemNames';
+import { PRESENCE_TIMEOUT_MS } from './polling';
 import {
   LIFE_POINTS_PER_LEVEL,
   SKILLS,
@@ -75,6 +76,7 @@ export type WireMember = {
   /** Any further inventories keyed by RS3 inv gameval (e.g. money_pouch). */
   inventories?: Record<string, number[]>;
   skills?: WireSkill[];
+  verified?: boolean;
 };
 
 /** Delta-poll placeholder: member unchanged since `from_time`. */
@@ -100,11 +102,14 @@ export type WirePartialMember = {
   last_updated?: string;
   stats?: number[];
   coordinates?: number[];
+  verified?: boolean;
 };
 
 export type WireEntry = WireMember | WireMemberStub | WirePartialMember;
 
-export function isPartialMember(member: WireEntry): member is WirePartialMember {
+export function isPartialMember(
+  member: WireEntry,
+): member is WirePartialMember {
   return 'partial' in member && member.partial === true;
 }
 
@@ -141,6 +146,7 @@ export type PlayerView = {
   /** Resolved avatar for map/panel (null when Discord avatar is off). */
   avatarUrl: string | null;
   useDiscordAvatar: boolean;
+  verified: boolean;
   online: boolean;
   /** Online but on the lobby screen: shown as "lobby" instead of a position. */
   inLobby: boolean;
@@ -289,7 +295,8 @@ export function unpackPairs(pairs: number[] | undefined): ItemStack[] {
 
 export function colorForName(name: string) {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < name.length; i++)
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   const hues = [120, 85, 40, 200, 280, 160];
   const h = hues[hash % hues.length];
   return hslToHex(h, 42, 38);
@@ -315,7 +322,9 @@ export function resolveAvatarColor(name: string, color?: string | null) {
 }
 
 /** Discord default avatar from snowflake (custom avatars need the Discord API). */
-export function discordAvatarUrl(discordId: string | null | undefined): string | null {
+export function discordAvatarUrl(
+  discordId: string | null | undefined,
+): string | null {
   if (!discordId || !/^\d{17,20}$/.test(discordId)) return null;
   const index = Number((BigInt(discordId) >> 22n) % 6n);
   return `https://cdn.discordapp.com/embed/avatars/${index}.png`;
@@ -352,6 +361,7 @@ export function toPlayerView(member: WireMember): PlayerView | null {
     discordAvatarUrl: discordUrl,
     useDiscordAvatar,
     avatarUrl: useDiscordAvatar ? discordUrl : null,
+    verified: member.verified === true,
     online: member.online === true,
     inLobby: member.in_lobby === true,
     baselineAt: member.baseline_at ?? null,
@@ -393,6 +403,7 @@ function memberViewKey(member: WireMember) {
     member.color ?? '',
     member.use_discord_avatar === false ? '0' : '1',
     member.online === true ? '1' : '0',
+    member.verified === true ? '1' : '0',
     member.target ? `${member.target.name}:${member.target.hp ?? ''}` : '',
   ].join('|');
 }
@@ -428,6 +439,23 @@ export function membersToPlayers(
   return out;
 }
 
+export function withPresenceTimeout(
+  players: PlayerView[],
+  now: number,
+): PlayerView[] {
+  let changed = false;
+  const next = players.map((p) => {
+    if (!p.online) return p;
+    const lastSeenAt = p.lastSeen ? Date.parse(p.lastSeen) : NaN;
+    if (Number.isFinite(lastSeenAt) && now - lastSeenAt < PRESENCE_TIMEOUT_MS) {
+      return p;
+    }
+    changed = true;
+    return { ...p, online: false, inLobby: false };
+  });
+  return changed ? next : players;
+}
+
 export type ItemSource = 'bank' | 'inventory' | 'equipment';
 
 export const ITEM_SOURCES: ItemSource[] = ['bank', 'inventory', 'equipment'];
@@ -453,7 +481,9 @@ export function aggregateGroupItems(
     const label = member.name === SHARED ? 'Shared bank' : member.name;
     for (const source of sources) {
       // Only the shared bank has a bank; carried items belong to a member.
-      const stacks = unpackPairs(member[SOURCE_FIELD[source]] as number[] | undefined);
+      const stacks = unpackPairs(
+        member[SOURCE_FIELD[source]] as number[] | undefined,
+      );
       for (const stack of stacks) {
         let byPlayer = map.get(stack.id);
         if (!byPlayer) {
@@ -478,7 +508,9 @@ export function aggregateGroupItems(
     });
   }
 
-  return items.sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
+  return items.sort(
+    (a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name),
+  );
 }
 
 export function formatQty(n: number) {

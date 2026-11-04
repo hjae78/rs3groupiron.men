@@ -61,7 +61,9 @@ export function LoginPage() {
         <AuthHeader />
 
         <h1 className="hero-title">Login</h1>
-        <p className="hero-lead">Enter your group name and token to continue.</p>
+        <p className="hero-lead">
+          Enter your group name and token to continue.
+        </p>
 
         <div className={formTheme}>
           <form className="hero-card" onSubmit={(e) => void onSubmit(e)}>
@@ -104,7 +106,9 @@ export function LoginPage() {
 
             <button
               type="submit"
-              className={ready ? 'hero-submit hero-submit--ready' : 'hero-submit'}
+              className={
+                ready ? 'hero-submit hero-submit--ready' : 'hero-submit'
+              }
               disabled={!ready || isBusy}
             >
               {isBusy ? 'Signing in…' : 'Go to group'}

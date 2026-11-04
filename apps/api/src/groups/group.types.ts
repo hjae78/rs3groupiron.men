@@ -272,6 +272,11 @@ export class UpdateMemberBody {
   @IsOptional()
   @IsBoolean()
   baseline?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  tracking_id?: string;
 }
 
 export class MemberNameBody {

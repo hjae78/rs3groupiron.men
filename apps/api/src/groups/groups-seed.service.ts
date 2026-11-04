@@ -77,6 +77,9 @@ export class GroupsSeedService implements OnModuleInit {
     // round-trips), then bulk insert per table inside one transaction.
     const groupRows: Prisma.GroupCreateManyInput[] = [];
     const memberRows: Prisma.MemberCreateManyInput[] = [];
+    const playerRows: Prisma.PlayerCreateManyInput[] = [];
+    const playerUsernameHistoryRows: Prisma.PlayerUsernameHistoryCreateManyInput[] =
+      [];
     const inventoryRows: Prisma.MemberInventoryCreateManyInput[] = [];
     const itemRows: Prisma.MemberInventoryItemCreateManyInput[] = [];
     const groupInventoryRows: Prisma.GroupInventoryCreateManyInput[] = [];
@@ -145,9 +148,31 @@ export class GroupsSeedService implements OnModuleInit {
           color = null;
         }
 
+        const playerId = randomUUID();
+        playerRows.push({
+          id: playerId,
+          currentUsername: member.name,
+          usernameKey: member.name.toLowerCase(),
+          createdAt: member.last_updated
+            ? new Date(member.last_updated)
+            : seedNow,
+        });
+        playerUsernameHistoryRows.push({
+          id: randomUUID(),
+          playerId,
+          username: member.name,
+          firstSeenAt: member.last_updated
+            ? new Date(member.last_updated)
+            : seedNow,
+          lastSeenAt: member.last_updated
+            ? new Date(member.last_updated)
+            : seedNow,
+        });
+
         memberRows.push({
           id: memberId,
           groupId,
+          playerId,
           name: member.name,
           nickname: normalizeNickname(member.nickname),
           discordId,
@@ -245,8 +270,15 @@ export class GroupsSeedService implements OnModuleInit {
         await tx.groupInventory.deleteMany();
         await tx.member.deleteMany();
         await tx.group.deleteMany();
+        await tx.player.deleteMany();
 
         if (groupRows.length) await tx.group.createMany({ data: groupRows });
+        if (playerRows.length) await tx.player.createMany({ data: playerRows });
+        if (playerUsernameHistoryRows.length) {
+          await tx.playerUsernameHistory.createMany({
+            data: playerUsernameHistoryRows,
+          });
+        }
         if (memberRows.length) await tx.member.createMany({ data: memberRows });
         for (const chunk of chunked(inventoryRows, SEED_CHUNK)) {
           await tx.memberInventory.createMany({ data: chunk });

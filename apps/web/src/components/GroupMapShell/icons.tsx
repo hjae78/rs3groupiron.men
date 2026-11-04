@@ -384,3 +384,20 @@ export function LockIcon() {
     </svg>
   );
 }
+
+export function VerifiedIcon() {
+  return (
+    <svg
+      {...SMALL}
+      className="gms-verified-icon"
+      width={12}
+      height={12}
+      aria-hidden={undefined}
+      aria-label="Verified RuneScape account owner"
+      role="img"
+    >
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M5 8.2l2 2 4-4.4" />
+    </svg>
+  );
+}

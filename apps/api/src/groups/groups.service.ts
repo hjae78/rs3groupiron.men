@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -77,6 +78,7 @@ import {
   sharesPatch,
   sharesToColumns,
   validateDisplayName,
+  verifiedCount,
   validateGroupName,
   validateInventoriesPayload,
   validateSkillsPayload,
@@ -132,6 +134,8 @@ import {
 import { planItemChanges } from './item-changes';
 import { planQuestUpdate, resolveQuestInputs } from './quests';
 import { normalizeSeedSkills } from './skill-codec';
+import { hashTrackingId } from './player-verification';
+import { PlayerVerificationService } from './player-verification.service';
 import { type DbClient, XpHistoryService } from './xp-history.service';
 
 type InventoryWithItems = MemberInventory & { items: MemberInventoryItem[] };
@@ -175,7 +179,8 @@ const DEFAULT_COORDS = [3200, 3200, 0];
  * delta payload itself and needs no refetch; the rest are endpoints a client
  * would otherwise have to poll blindly.
  */
-export type GroupChangeKind = 'members' | 'achievements' | 'quests' | 'settings';
+export type GroupChangeKind =
+  'members' | 'achievements' | 'quests' | 'settings';
 
 export type GroupChange = { groupId: string; kind: GroupChangeKind };
 
@@ -206,6 +211,7 @@ export class GroupsService {
     private readonly gamevals: GamevalsService,
     private readonly questCatalog: QuestCatalogService,
     private readonly rareItems: RareItemsService,
+    private readonly verification: PlayerVerificationService,
   ) {}
 
   /**
@@ -306,6 +312,13 @@ export class GroupsService {
               name: memberName,
               ...defaults,
               ...coords,
+              player: {
+                create: {
+                  currentUsername: memberName,
+                  usernameKey: memberName.toLowerCase(),
+                  usernameHistory: { create: { username: memberName } },
+                },
+              },
             })),
           },
         },
@@ -332,8 +345,37 @@ export class GroupsService {
     };
   }
 
-  async amILoggedIn(groupName: string, token: string | undefined) {
+  async amILoggedIn(
+    groupName: string,
+    token: string | undefined,
+    memberName?: string,
+    trackingId?: string,
+  ) {
     const group = await this.access.read(groupName, token);
+
+    let verified: boolean | undefined;
+    if (memberName) {
+      const member = findMemberRef(group.members, memberName);
+      if (member) {
+        const full = await this.prisma.member.findUnique({
+          where: { id: member.id },
+          select: {
+            playerId: true,
+            player: { select: { verificationStatus: true, usernameKey: true } },
+          },
+        });
+        verified = full?.player?.verificationStatus === 'plugin_verified';
+        if (!verified && trackingId && full?.playerId && full.player) {
+          verified = await this.verification.tryAutoVerify(
+            member.id,
+            full.playerId,
+            full.player.usernameKey,
+            trackingId,
+          );
+        }
+      }
+    }
+
     return {
       ok: true,
       name: group.name,
@@ -352,6 +394,7 @@ export class GroupsService {
       // lower bound", which beats a 500 if a read ever lands without one.
       created_at: group.createdAt?.toISOString(),
       ...(token ? { deletion: deletionStatus(group) } : {}),
+      ...(memberName ? { member_verified: verified === true } : {}),
     };
   }
 
@@ -461,6 +504,7 @@ export class GroupsService {
   private async readGroupData(groupId: string, since: number, split = false) {
     const members = await this.prisma.member.findMany({
       where: { groupId },
+      include: { player: { select: { verificationStatus: true } } },
     });
 
     /**
@@ -792,7 +836,8 @@ export class GroupsService {
 
     const itemId = Math.round(body.item_id);
     const value = body.value && body.value > 0 ? Math.round(body.value) : 0;
-    const quantity = body.quantity && body.quantity > 1 ? Math.round(body.quantity) : 1;
+    const quantity =
+      body.quantity && body.quantity > 1 ? Math.round(body.quantity) : 1;
     if (!(await this.dropCounts(group.id, itemId, value, quantity))) {
       return { ok: true, recorded: false, item_id: itemId };
     }
@@ -1203,7 +1248,10 @@ export class GroupsService {
     );
     const full = body.full === true;
     const recordFeed = body.achievements !== false;
-    const tallies = resolveAchievementTallies(body.tallies ?? [], this.gamevals);
+    const tallies = resolveAchievementTallies(
+      body.tallies ?? [],
+      this.gamevals,
+    );
     const now = new Date();
 
     const plan = await this.prisma.$transaction(
@@ -1268,7 +1316,10 @@ export class GroupsService {
           for (const tally of tallies) {
             await tx.memberAchievementTally.upsert({
               where: {
-                memberId_gameval: { memberId: member.id, gameval: tally.gameval },
+                memberId_gameval: {
+                  memberId: member.id,
+                  gameval: tally.gameval,
+                },
               },
               update: {
                 progress: tally.progress,
@@ -1348,6 +1399,22 @@ export class GroupsService {
     // it; the roster is managed through add-group-member.
     const existing = findMemberRef(group.members, name);
     if (!existing) throw new NotFoundException('Member not found');
+
+    const identity = await this.prisma.member.findUnique({
+      where: { id: existing.id },
+      select: { player: { select: { trackingIdHash: true } } },
+    });
+    const knownTrackingIdHash = identity?.player?.trackingIdHash;
+    if (knownTrackingIdHash) {
+      const providedHash = body.tracking_id
+        ? hashTrackingId(body.tracking_id)
+        : null;
+      if (providedHash !== knownTrackingIdHash) {
+        throw new ForbiddenException(
+          "Tracking id does not match this member's verified identity",
+        );
+      }
+    }
 
     const now = new Date();
     const vitals = body.stats ? statsFromArray(body.stats) : undefined;
@@ -1550,7 +1617,8 @@ export class GroupsService {
       { maxWait: 5_000, timeout: 20_000 },
     );
 
-    if (postedAchievements) this.notifyChanged(group.id, 'members', 'achievements');
+    if (postedAchievements)
+      this.notifyChanged(group.id, 'members', 'achievements');
     else this.notifyChanged(group.id);
     return {
       ok: true,
@@ -1873,7 +1941,12 @@ export class GroupsService {
     if (result.count === 0) throw new NotFoundException('Member not found');
 
     this.notifyChanged(group.id);
-    return { ok: true, name, target: target ?? null, updated_at: now.toISOString() };
+    return {
+      ok: true,
+      name,
+      target: target ?? null,
+      updated_at: now.toISOString(),
+    };
   }
 
   /** Opt a member in or out of the live map without changing presence. */
@@ -2001,18 +2074,30 @@ export class GroupsService {
     const color = normalizeColor(body.color);
     const useDiscordAvatar = normalizeUseDiscordAvatar(body.use_discord_avatar);
 
-    await this.prisma.member.create({
-      data: {
-        groupId: group.id,
-        name,
-        nickname,
-        discordId,
-        color,
-        useDiscordAvatar,
-        ...statsFromArray(DEFAULT_STATS),
-        ...coordsFromArray(DEFAULT_COORDS),
-      },
-      select: { id: true },
+    await this.prisma.$transaction(async (tx) => {
+      const player = await tx.player.create({
+        data: {
+          currentUsername: name,
+          usernameKey: name.toLowerCase(),
+          usernameHistory: { create: { username: name } },
+        },
+        select: { id: true },
+      });
+
+      await tx.member.create({
+        data: {
+          groupId: group.id,
+          name,
+          nickname,
+          discordId,
+          color,
+          useDiscordAvatar,
+          ...statsFromArray(DEFAULT_STATS),
+          ...coordsFromArray(DEFAULT_COORDS),
+          playerId: player.id,
+        },
+        select: { id: true },
+      });
     });
 
     this.notifyChanged(group.id, 'settings');
@@ -2193,7 +2278,12 @@ export class GroupsService {
         publicItems: true,
         publicQuests: true,
         publicAchievements: true,
-        members: { select: { name: true } },
+        members: {
+          select: {
+            name: true,
+            player: { select: { verificationStatus: true } },
+          },
+        },
       },
     });
 
@@ -2203,6 +2293,7 @@ export class GroupsService {
         mode: row.mode,
         views: row.viewsTotal,
         member_count: playableCount(row.members),
+        verified_count: verifiedCount(row.members),
         member_slots: row.memberSlots,
         member_names: row.members
           .filter((m) => m.name !== SHARED_MEMBER)

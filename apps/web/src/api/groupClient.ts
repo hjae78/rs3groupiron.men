@@ -49,6 +49,7 @@ export type PublicGroup = {
   mode: GroupMode;
   views: number;
   member_count: number;
+  verified_count: number;
   member_slots: number;
   member_names: string[];
   shares: GroupShares;
@@ -67,6 +68,7 @@ export type LeaderboardEntry = {
   name: string;
   mode: GroupMode;
   member_count: number;
+  verified_count: number;
   views: number;
   recent_views: number;
   total_level: number;
@@ -151,7 +153,7 @@ export function isAccessDenied(err: unknown): boolean {
   return err instanceof ApiError && (err.status === 401 || err.status === 403);
 }
 
-async function api<T>(path: string, { token, ...init }: ApiInit = {}): Promise<T> {
+export async function api<T>(path: string, { token, ...init }: ApiInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: {

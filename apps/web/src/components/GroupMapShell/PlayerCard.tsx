@@ -15,6 +15,7 @@ import { totalXpAmount, xpPartsBackToFront } from '../../lib/xpDrops';
 import type { MemberQuestStates } from '../../lib/quests';
 import { ItemIcon } from './ItemIcon';
 import { ItemTooltip, useItemTooltip } from './ItemTooltip';
+import { VerifiedIcon } from './icons';
 import { PlayerQuestsPanel } from './PlayerQuestsPanel';
 import { SkillsPanel } from './SkillsPanel';
 
@@ -164,6 +165,11 @@ export const PlayerCard = memo(function PlayerCard({
             aria-hidden
           />
           <span className="gms-player-name">{player.displayName}</span>
+          {player.verified && (
+            <span title="Verified RuneScape account owner">
+              <VerifiedIcon />
+            </span>
+          )}
           <Presence
             online={player.online}
             inLobby={player.inLobby}

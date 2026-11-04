@@ -8,35 +8,35 @@ datasource db {
 }
 
 model Group {
-  id          String           @id @default(cuid())
-  name        String           @unique
+  id                  String            @id @default(cuid())
+  name                String            @unique
   /// Lower-cased name for case-insensitive lookups.
-  nameKey     String           @unique @map("name_key")
-  token       String
-  mode        GroupMode        @default(normal)
-  appearance  AppearanceTheme  @default(rs3)
+  nameKey             String            @unique @map("name_key")
+  token               String
+  mode                GroupMode         @default(normal)
+  appearance          AppearanceTheme   @default(rs3)
   /// Fixed group capacity (2–5). Add only when below this.
-  memberSlots Int              @default(5) @map("member_slots")
+  memberSlots         Int               @default(5) @map("member_slots")
   /// Coin value at or above which a drop is announced even when the item is
   /// not listed. 0 leaves the lists in sole charge.
-  dropThreshold Int            @default(20000000) @map("drop_threshold")
-  visibility  GroupVisibility  @default(private)
-  publicMap          Boolean @default(false) @map("public_map")
-  publicSkills       Boolean @default(true) @map("public_skills")
-  publicItems        Boolean @default(true) @map("public_items")
-  publicQuests       Boolean @default(true) @map("public_quests")
-  publicAchievements Boolean @default(true) @map("public_achievements")
-  viewsTotal  Int              @default(0) @map("views_total")
-  createdAt   DateTime         @default(now()) @map("created_at")
-  deletionRequestedAt DateTime? @map("deletion_requested_at")
-  deleteAfter         DateTime? @map("delete_after")
-  members     Member[]
-  viewDays    GroupViewDay[]
+  dropThreshold       Int               @default(20000000) @map("drop_threshold")
+  visibility          GroupVisibility   @default(private)
+  publicMap           Boolean           @default(false) @map("public_map")
+  publicSkills        Boolean           @default(true) @map("public_skills")
+  publicItems         Boolean           @default(true) @map("public_items")
+  publicQuests        Boolean           @default(true) @map("public_quests")
+  publicAchievements  Boolean           @default(true) @map("public_achievements")
+  viewsTotal          Int               @default(0) @map("views_total")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  deletionRequestedAt DateTime?         @map("deletion_requested_at")
+  deleteAfter         DateTime?         @map("delete_after")
+  members             Member[]
+  viewDays            GroupViewDay[]
   /// Group-owned inventories, i.e. the shared bank.
-  inventories GroupInventory[]
-  sharedBankEntries SharedBankEntry[]
-  achievements Achievement[]
-  rareItems   GroupRareItem[]
+  inventories         GroupInventory[]
+  sharedBankEntries   SharedBankEntry[]
+  achievements        Achievement[]
+  rareItems           GroupRareItem[]
 
   @@index([visibility, nameKey])
   @@index([deleteAfter])
@@ -155,82 +155,202 @@ enum AppearanceTheme {
 }
 
 model Member {
-  id          String   @id @default(cuid())
-  groupId     String   @map("group_id")
-  name        String
-  nickname    String?
-  discordId   String?  @map("discord_id")
+  id               String    @id @default(cuid())
+  groupId          String    @map("group_id")
+  name             String
+  nickname         String?
+  discordId        String?   @map("discord_id")
   /// Hex map/panel colour, e.g. #4a8f3c. Null = hash from name.
-  color       String?
+  color            String?
   /// When true and discordId is set, show Discord avatar on map + left panel.
-  useDiscordAvatar Boolean @default(true) @map("use_discord_avatar")
+  useDiscordAvatar Boolean   @default(true) @map("use_discord_avatar")
   /// Plugin/client presence — offline members are hidden on the map.
-  online      Boolean  @default(false)
+  online           Boolean   @default(false)
   /// Opt-out from the live map. False hides this member's position from the
   /// rest of the group without touching their online flag or any other panel.
-  shareLocation Boolean @default(true) @map("share_location")
+  shareLocation    Boolean   @default(true) @map("share_location")
   /// Logged in but sitting on the lobby screen: online, with no position.
-  inLobby     Boolean  @default(false) @map("in_lobby")
+  inLobby          Boolean   @default(false) @map("in_lobby")
   /// What this member is currently fighting, straight from the target panel.
   /// Cleared when they stop; treated as stale by readers after a short while.
-  targetName    String?   @map("target_name")
-  targetHp      Int?      @map("target_hp")
-  targetPercent Int?      @map("target_percent")
-  targetAt      DateTime? @map("target_at")
+  targetName       String?   @map("target_name")
+  targetHp         Int?      @map("target_hp")
+  targetPercent    Int?      @map("target_percent")
+  targetAt         DateTime? @map("target_at")
   /// Running total across every NPC, kept here so a member list needs no
   /// aggregate query.
-  npcKillsTotal Int       @default(0) @map("npc_kills_total")
+  npcKillsTotal    Int       @default(0) @map("npc_kills_total")
   /// When the plugin last sent a full login baseline. The site compares this
   /// between polls: a jump that lands on a new baseline is catch-up, not a
   /// gain, so it must not surface as an XP drop.
-  baselineAt  DateTime? @map("baseline_at")
+  baselineAt       DateTime? @map("baseline_at")
   /// Any change at all: position, vitals, online flag, profile, inventories.
-  lastUpdated DateTime @default(now()) @map("last_updated")
+  lastUpdated      DateTime  @default(now()) @map("last_updated")
   /// Only the expensive payload: inventories and skills. A position ping bumps
   /// lastUpdated but not this, so a delta poll can send the member's new
   /// coordinates without resending their bank. See getGroupData(split).
-  dataUpdatedAt DateTime @default(now()) @map("data_updated_at")
-  hpCurrent     Int @default(0) @map("hp_current")
-  hpMax         Int @default(0) @map("hp_max")
-  prayerCurrent Int @default(0) @map("prayer_current")
-  prayerMax     Int @default(0) @map("prayer_max")
-  summonCurrent Int @default(0) @map("summon_current")
-  summonMax     Int @default(0) @map("summon_max")
+  dataUpdatedAt    DateTime  @default(now()) @map("data_updated_at")
+  hpCurrent        Int       @default(0) @map("hp_current")
+  hpMax            Int       @default(0) @map("hp_max")
+  prayerCurrent    Int       @default(0) @map("prayer_current")
+  prayerMax        Int       @default(0) @map("prayer_max")
+  summonCurrent    Int       @default(0) @map("summon_current")
+  summonMax        Int       @default(0) @map("summon_max")
   /// Carried weight in kilograms, as the game shows it. Float because it has a
   /// decimal, and signed because weight-reducing gear takes it below zero.
-  weight        Float @default(0)
-  world         Int @default(0)
-  x     Int @default(0)
-  y     Int @default(0)
-  plane Int @default(0)
+  weight           Float     @default(0)
+  world            Int       @default(0)
+  x                Int       @default(0)
+  y                Int       @default(0)
+  plane            Int       @default(0)
+  /// Restrict (not Cascade): a Player must have its Members cleared first —
+  /// see PlayerDeletionService.
+  playerId         String    @map("player_id")
 
-  group Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  inventories MemberInventory[]
-  skills MemberSkill[]
-  xpSamples SkillXpSample[]
-  quests MemberQuest[]
+  group                 Group                    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  player                Player                   @relation(fields: [playerId], references: [id], onDelete: Restrict)
+  inventories           MemberInventory[]
+  skills                MemberSkill[]
+  xpSamples             SkillXpSample[]
+  quests                MemberQuest[]
   completedAchievements MemberAchievement[]
-  achievementTallies MemberAchievementTally[]
-  npcKills    MemberNpcKill[]
+  achievementTallies    MemberAchievementTally[]
+  npcKills              MemberNpcKill[]
 
   @@unique([groupId, name])
   @@index([groupId])
+  @@index([playerId])
   @@map("members")
+}
+
+enum PlayerVerificationStatus {
+  unverified
+  plugin_verified
+}
+
+/// Global, cross-group player identity; a Player can have zero or more
+/// Members across different groups.
+model Player {
+  id                 String                   @id @default(cuid())
+  currentUsername    String                   @map("current_username")
+  /// Lower-cased, for case-insensitive lookups. Only unique among verified
+  /// players, via a partial unique index in the migration SQL (Prisma's
+  /// schema syntax can't express that directly).
+  usernameKey        String                   @map("username_key")
+  verificationStatus PlayerVerificationStatus @default(unverified) @map("verification_status")
+  verifiedAt         DateTime?                @map("verified_at")
+  /// Hash of the plugin's Player.GetTrackingID() at the moment this player
+  /// verified. Lets a later membership with the same username auto-verify
+  /// once it reports a matching tracking id, without redoing the code flow.
+  trackingIdHash     String?                  @map("tracking_id_hash")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  /// Same shape as Group.deletionRequestedAt/deleteAfter: a 24h cancellable
+  /// window, swept by the same GroupPurgeService that already handles groups.
+  deletionRequestedAt DateTime? @map("deletion_requested_at")
+  deleteAfter         DateTime? @map("delete_after")
+
+  members            Member[]
+  usernameHistory    PlayerUsernameHistory[]
+  verificationTokens PlayerVerificationToken[]
+  accessCredentials  PlayerAccessCredential[]
+
+  @@index([usernameKey])
+  @@index([usernameKey, trackingIdHash])
+  @@index([deleteAfter])
+  @@map("players")
+}
+
+/// Point-in-time record of every username a Player has gone by, independent
+/// of the group-scoped Achievement/SharedBankEntry name snapshots.
+model PlayerUsernameHistory {
+  id          String   @id @default(cuid())
+  playerId    String   @map("player_id")
+  username    String
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId])
+  @@map("player_username_history")
+}
+
+/// Single-use, plugin-requested proof that this group's token was used while
+/// logged in as this member — not cryptographic account ownership, since the
+/// plugin API exposes no stable account id, only the display name. Only
+/// tokenHash is stored; the plaintext is returned once and never persisted.
+model PlayerVerificationToken {
+  id             String    @id @default(cuid())
+  playerId       String    @map("player_id")
+  /// Snapshot fields for audit only, not FKs (mirrors Achievement.memberName)
+  /// so a later group/member rename or deletion can't orphan anything here.
+  groupId        String    @map("group_id")
+  memberId       String    @map("member_id")
+  tokenHash      String    @map("token_hash")
+  /// Carries the plugin's tracking id hash from request through to redeem,
+  /// since redemption happens in the browser with no plugin access of its own.
+  trackingIdHash String?   @map("tracking_id_hash")
+  expiresAt      DateTime  @map("expires_at")
+  consumedAt     DateTime? @map("consumed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([playerId])
+  @@map("player_verification_tokens")
+}
+
+/// A revocable, rotatable session credential issued once verification
+/// succeeds — separate from PlayerVerificationToken because proving
+/// ownership and acting afterwards are different concerns.
+model PlayerAccessCredential {
+  id         String    @id @default(cuid())
+  playerId   String    @map("player_id")
+  tokenHash  String    @map("token_hash")
+  /// Forward-compatible with finer-grained scopes later; only "portal"
+  /// exists today and nothing yet checks its value beyond presence.
+  scopes     String[]  @default(["portal"])
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([playerId])
+  @@map("player_access_credentials")
+}
+
+/// Tombstone: a short cooldown on re-verifying a username after deletion,
+/// not an identity record. No FK to Player (it's gone); the hash is an
+/// exact-match lookup key only, not a claim of anonymization.
+model DeletionSuppression {
+  id              String   @id @default(cuid())
+  usernameKeyHash String   @map("username_key_hash")
+  suppressedAt    DateTime @default(now()) @map("suppressed_at")
+  cooldownUntil   DateTime @map("cooldown_until")
+
+  @@index([usernameKeyHash])
+  @@map("deletion_suppressions")
 }
 
 /// An inventory a member owns, keyed by its RS3 inv gameval (inv, worn,
 /// bank, money_pouch, ...). The plugin's inventory, equipment and bank are
 /// each one of these; contents live in MemberInventoryItem.
 model MemberInventory {
-  id        String   @id @default(cuid())
-  memberId  String   @map("member_id")
-  key       String
-  updatedAt DateTime @default(now()) @map("updated_at")
+  id          String   @id @default(cuid())
+  memberId    String   @map("member_id")
+  key         String
+  updatedAt   DateTime @default(now()) @map("updated_at")
   /// Hash of the current contents. A sync whose hash matches is skipped
   /// entirely, so an unchanged 4000-item bank costs one SELECT instead of
   /// deleting and reinserting every row. Null means "never hashed" and
   /// forces one rewrite.
-  contentHash String? @map("content_hash")
+  contentHash String?  @map("content_hash")
 
   member Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
   items  MemberInventoryItem[]
@@ -257,14 +377,14 @@ model MemberInventoryItem {
 /// An inventory the group owns rather than a member: the shared bank lives
 /// here under the `bank` key. Same shape as a member inventory.
 model GroupInventory {
-  id        String   @id @default(cuid())
-  groupId   String   @map("group_id")
-  key       String
-  updatedAt DateTime @default(now()) @map("updated_at")
+  id          String   @id @default(cuid())
+  groupId     String   @map("group_id")
+  key         String
+  updatedAt   DateTime @default(now()) @map("updated_at")
   /// See MemberInventory.contentHash. Skipping the write also leaves
   /// updatedAt alone, which keeps an unchanged shared bank out of every
   /// get-group-data delta.
-  contentHash String? @map("content_hash")
+  contentHash String?  @map("content_hash")
 
   group Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
   items GroupInventoryItem[]
@@ -322,11 +442,11 @@ model MemberQuest {
  * the running totals stay cheap to read and to add to.
  */
 model MemberNpcKill {
-  id        String   @id @default(cuid())
-  memberId  String   @map("member_id")
-  npcName   String   @map("npc_name")
-  kills     Int      @default(0)
-  lastAt    DateTime @default(now()) @map("last_at")
+  id       String   @id @default(cuid())
+  memberId String   @map("member_id")
+  npcName  String   @map("npc_name")
+  kills    Int      @default(0)
+  lastAt   DateTime @default(now()) @map("last_at")
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 

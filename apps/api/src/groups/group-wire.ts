@@ -37,10 +37,18 @@ type InventoryRowLike = { slot: number; itemId: number; quantity: number };
 /** Any inventory with its contents, member-owned or group-owned. */
 type InventoryLike = { key: string; items: InventoryRowLike[] };
 
+type VerifiableMember = {
+  player: { verificationStatus: string } | null;
+};
+
 export type MemberWithData = Member & {
   inventories: InventoryLike[];
   skills: MemberSkill[];
-};
+} & VerifiableMember;
+
+function isVerified(member: VerifiableMember): boolean {
+  return member.player?.verificationStatus === 'plugin_verified';
+}
 
 /** Inventory keys that already have a named wire field. */
 const STANDARD_INVENTORY_KEYS: ReadonlySet<string> = new Set(
@@ -125,6 +133,7 @@ export function toWireMember(member: MemberWithData) {
     in_lobby: member.inLobby,
     target: wireTarget(member),
     baseline_at: member.baselineAt?.toISOString(),
+    verified: isVerified(member),
     ...inventoriesToWire(member.inventories),
     skills: skillsToWire(member.skills),
   };
@@ -138,7 +147,7 @@ export function toWireMember(member: MemberWithData) {
  * cached copy instead of replacing it — without the marker, an absent `bank`
  * would be indistinguishable from an empty one.
  */
-export function toPartialWireMember(member: Member) {
+export function toPartialWireMember(member: Member & VerifiableMember) {
   return {
     name: member.name,
     partial: true as const,
@@ -154,6 +163,7 @@ export function toPartialWireMember(member: Member) {
     in_lobby: member.inLobby,
     target: wireTarget(member),
     baseline_at: member.baselineAt?.toISOString(),
+    verified: isVerified(member),
   };
 }
 
@@ -172,6 +182,7 @@ export function toSharedWireMember(
     last_updated: updatedAt.toISOString(),
     stats: statsToArray({ ...statsFromArray([]), world: 0, weight: 0 }),
     coordinates: [0, 0, 0],
+    verified: false,
     ...inventoriesToWire(inventories),
     skills: skillsToWire([]),
   };

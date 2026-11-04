@@ -15,6 +15,7 @@ import {
 import { sharesToColumns } from './group-fields';
 import { redactWireEntries, type WireEntry } from './group-wire';
 import { GroupsService } from './groups.service';
+import type { PlayerVerificationService } from './player-verification.service';
 import { XpHistoryService } from './xp-history.service';
 
 const PUBLIC_TOKEN = 'public-token-value';
@@ -91,6 +92,16 @@ function fakePrisma() {
           ),
         ),
     },
+    member: {
+      findUnique: () =>
+        Promise.resolve({
+          playerId: 'p1',
+          player: {
+            verificationStatus: 'unverified',
+            usernameKey: 'ironjackery',
+          },
+        }),
+    },
   } as unknown as PrismaService;
   return prisma;
 }
@@ -101,7 +112,10 @@ function rareItems() {
   return service;
 }
 
-function service(prisma: PrismaService) {
+function service(
+  prisma: PrismaService,
+  verification?: PlayerVerificationService,
+) {
   return new GroupsService(
     prisma,
     new GroupAccessService(prisma),
@@ -109,6 +123,7 @@ function service(prisma: PrismaService) {
     new GamevalsService(),
     new QuestCatalogService(),
     rareItems(),
+    verification ?? ({} as PlayerVerificationService),
   );
 }
 
@@ -341,6 +356,48 @@ describe('scoped read endpoints', () => {
   });
 });
 
+describe('amILoggedIn tracking-id auto-verify', () => {
+  it('asks verification to auto-verify an unverified member and reports its result', async () => {
+    const tryAutoVerify = jest.fn(() => Promise.resolve(true));
+    const verification = {
+      tryAutoVerify,
+    } as unknown as PlayerVerificationService;
+    const groups = service(fakePrisma(), verification);
+
+    const info = await groups.amILoggedIn(
+      'Open Group',
+      undefined,
+      'IronJackery',
+      'track-123',
+    );
+
+    expect(tryAutoVerify).toHaveBeenCalledWith(
+      'm1',
+      'p1',
+      'ironjackery',
+      'track-123',
+    );
+    expect(info.member_verified).toBe(true);
+  });
+
+  it('does not call verification when a tracking id is not provided', async () => {
+    const tryAutoVerify = jest.fn(() => Promise.resolve(true));
+    const verification = {
+      tryAutoVerify,
+    } as unknown as PlayerVerificationService;
+    const groups = service(fakePrisma(), verification);
+
+    const info = await groups.amILoggedIn(
+      'Open Group',
+      undefined,
+      'IronJackery',
+    );
+
+    expect(tryAutoVerify).not.toHaveBeenCalled();
+    expect(info.member_verified).toBe(false);
+  });
+});
+
 describe('recordGroupView', () => {
   function viewPrisma() {
     const writes: string[] = [];
@@ -367,14 +424,20 @@ describe('recordGroupView', () => {
 
   it('counts a visit to a public group', async () => {
     const { prisma, writes } = viewPrisma();
-    const result = await service(prisma).recordGroupView('Open Group', undefined);
+    const result = await service(prisma).recordGroupView(
+      'Open Group',
+      undefined,
+    );
     expect(result.counted).toBe(true);
     expect(writes).toEqual(['day:id-Open Group', 'total:id-Open Group']);
   });
 
   it('does not count the owner looking at their own group', async () => {
     const { prisma, writes } = viewPrisma();
-    const result = await service(prisma).recordGroupView('Open Group', PUBLIC_TOKEN);
+    const result = await service(prisma).recordGroupView(
+      'Open Group',
+      PUBLIC_TOKEN,
+    );
     expect(result.counted).toBe(false);
     expect(writes).toEqual([]);
   });
@@ -388,7 +451,10 @@ describe('recordGroupView', () => {
 
   it('does not count the demo group, which is sample data', async () => {
     const { prisma, writes } = viewPrisma();
-    const result = await service(prisma).recordGroupView('Demo Group', undefined);
+    const result = await service(prisma).recordGroupView(
+      'Demo Group',
+      undefined,
+    );
     expect(result.counted).toBe(false);
     expect(writes).toEqual([]);
   });

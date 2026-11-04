@@ -4,16 +4,25 @@ import { RareItemsService } from '../items/rare-items.service';
 import type { GamevalsService } from '../gamevals/gamevals.service';
 import type { QuestCatalogService } from '../gamevals/quest-catalog.service';
 import type { XpHistoryService } from './xp-history.service';
+import type { PlayerVerificationService } from './player-verification.service';
 import type { PrismaService } from '../prisma/prisma.service';
 
-const GROUP = { id: 'g1', name: 'Testing', members: [{ id: 'm1', name: 'Swan Swear' }] };
+const GROUP = {
+  id: 'g1',
+  name: 'Testing',
+  members: [{ id: 'm1', name: 'Swan Swear' }],
+};
 
 /** On the shared list, so it needs no group opinion. */
 const SHARED_ID = 20171;
 const UNLISTED_ID = 4151;
 
 function build(options: {
-  override?: { include: boolean; minQty?: number | null; maxQty?: number | null } | null;
+  override?: {
+    include: boolean;
+    minQty?: number | null;
+    maxQty?: number | null;
+  } | null;
   threshold?: number;
 }) {
   const created: Array<Record<string, unknown>> = [];
@@ -22,17 +31,28 @@ function build(options: {
       findUnique: jest.fn().mockResolvedValue(options.override ?? null),
     },
     group: {
-      findUnique: jest.fn().mockResolvedValue({ dropThreshold: options.threshold ?? 0 }),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ dropThreshold: options.threshold ?? 0 }),
     },
     achievement: {
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         created.push(data);
-        return { ...data, id: 'a1', achievedAt: new Date(), skillId: null, gameval: null, imageUrl: null };
+        return {
+          ...data,
+          id: 'a1',
+          achievedAt: new Date(),
+          skillId: null,
+          gameval: null,
+          imageUrl: null,
+        };
       }),
     },
   } as unknown as PrismaService;
 
-  const access = { write: jest.fn().mockResolvedValue(GROUP) } as unknown as GroupAccessService;
+  const access = {
+    write: jest.fn().mockResolvedValue(GROUP),
+  } as unknown as GroupAccessService;
   const rare = new RareItemsService();
   rare.load('data/rare-items.json');
 
@@ -43,6 +63,7 @@ function build(options: {
     {} as GamevalsService,
     {} as QuestCatalogService,
     rare,
+    {} as PlayerVerificationService,
   );
   return { groups, created };
 }
@@ -68,7 +89,7 @@ describe('drop rules', () => {
     expect(created).toHaveLength(0);
   });
 
-  it("keeps an item the group added itself", async () => {
+  it('keeps an item the group added itself', async () => {
     const { groups } = build({ override: { include: true } });
     const out = await groups.reportDrop('Testing', 't', {
       name: 'Swan Swear',
@@ -152,12 +173,16 @@ describe('quantity range', () => {
     });
 
   it('keeps a stack inside the window', async () => {
-    const { groups } = build({ override: { include: true, minQty: 100, maxQty: 500 } });
+    const { groups } = build({
+      override: { include: true, minQty: 100, maxQty: 500 },
+    });
     expect((await report(groups, 250)).recorded).toBe(true);
   });
 
   it('keeps a stack on either boundary', async () => {
-    const { groups } = build({ override: { include: true, minQty: 100, maxQty: 500 } });
+    const { groups } = build({
+      override: { include: true, minQty: 100, maxQty: 500 },
+    });
     expect((await report(groups, 100)).recorded).toBe(true);
     expect((await report(groups, 500)).recorded).toBe(true);
   });
@@ -179,13 +204,17 @@ describe('quantity range', () => {
   });
 
   it('ignores a window on an excluded item', async () => {
-    const { groups } = build({ override: { include: false, minQty: 1, maxQty: 999 } });
+    const { groups } = build({
+      override: { include: false, minQty: 1, maxQty: 999 },
+    });
     expect((await report(groups, 5)).recorded).toBe(false);
   });
 
   // An item with no window set behaves exactly as it did before ranges existed.
   it('keeps any amount when both ends are open', async () => {
-    const { groups } = build({ override: { include: true, minQty: null, maxQty: null } });
+    const { groups } = build({
+      override: { include: true, minQty: null, maxQty: null },
+    });
     expect((await report(groups, 1)).recorded).toBe(true);
     expect((await report(groups, 1_000_000)).recorded).toBe(true);
   });

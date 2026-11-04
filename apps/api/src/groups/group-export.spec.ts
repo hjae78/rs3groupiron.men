@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GroupExportService } from './group-export.service';
+import { ZipWriter } from '../common/zip';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { R2Service } from '../uploads/r2.service';
 
@@ -48,6 +49,10 @@ type Fakes = {
   objects?: Record<string, Buffer>;
   readObject?: jest.Mock;
   configured?: boolean;
+  group?: Row | null;
+  groupInventories?: Row[];
+  rareItems?: Row[];
+  viewDays?: Row[];
 };
 
 function build(fakes: Fakes = {}) {
@@ -60,6 +65,41 @@ function build(fakes: Fakes = {}) {
       findMany: jest.fn(() =>
         Promise.resolve(fakes.members ?? [{ id: 'm1', name: 'Zezima' }]),
       ),
+    },
+    group: {
+      findUnique: jest.fn(() =>
+        Promise.resolve(
+          fakes.group === undefined
+            ? {
+                id: 'g1',
+                name: 'Iron Crew',
+                mode: 'standard',
+                appearance: null,
+                memberSlots: 5,
+                dropThreshold: 0,
+                visibility: 'private',
+                publicMap: false,
+                publicSkills: false,
+                publicItems: false,
+                publicQuests: false,
+                publicAchievements: false,
+                viewsTotal: 0,
+                createdAt: new Date('2026-01-01T00:00:00.000Z'),
+                deletionRequestedAt: null,
+                deleteAfter: null,
+              }
+            : fakes.group,
+        ),
+      ),
+    },
+    groupInventory: {
+      findMany: jest.fn(() => Promise.resolve(fakes.groupInventories ?? [])),
+    },
+    groupRareItem: {
+      findMany: jest.fn(() => Promise.resolve(fakes.rareItems ?? [])),
+    },
+    groupViewDay: {
+      findMany: jest.fn(() => Promise.resolve(fakes.viewDays ?? [])),
     },
   } as unknown as PrismaService;
 
@@ -335,5 +375,145 @@ describe('GroupExportService.writeArchive', () => {
     const readme = text['README.txt'];
     expect(readme).toContain('Your group token');
     expect(readme).toContain('deliberately left out');
+  });
+});
+
+function fullMember(overrides: Row = {}): Row {
+  return {
+    id: 'm1',
+    name: 'Zezima',
+    nickname: null,
+    discordId: null,
+    color: null,
+    useDiscordAvatar: false,
+    online: false,
+    inLobby: false,
+    shareLocation: false,
+    x: null,
+    y: null,
+    plane: null,
+    world: null,
+    hpCurrent: null,
+    hpMax: null,
+    prayerCurrent: null,
+    prayerMax: null,
+    summonCurrent: null,
+    summonMax: null,
+    weight: null,
+    targetName: null,
+    targetHp: null,
+    targetPercent: null,
+    targetAt: null,
+    npcKillsTotal: 0,
+    baselineAt: null,
+    lastUpdated: new Date('2026-01-01T00:00:00.000Z'),
+    dataUpdatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    skills: [],
+    inventories: [],
+    quests: [],
+    completedAchievements: [],
+    achievementTallies: [],
+    npcKills: [],
+    ...overrides,
+  };
+}
+
+describe('GroupExportService.buildStateDocument (member filter)', () => {
+  it('scopes the member query to one member and omits group-level sections', async () => {
+    const { service, prisma } = build({
+      members: [fullMember()],
+    });
+
+    const state = await service.buildStateDocument('Iron Crew', {
+      memberId: 'm1',
+      usernames: ['Zezima'],
+    });
+
+    expect(
+      (prisma.member.findMany as jest.Mock).mock.calls[0][0].where,
+    ).toMatchObject({ id: 'm1' });
+    const doc = state!.document as Record<string, unknown>;
+    expect(doc.shared_bank).toBeUndefined();
+    expect(doc.drop_rules).toBeUndefined();
+    expect(doc.view_days).toBeUndefined();
+    expect(doc.members).toHaveLength(1);
+  });
+
+  it('includes group-level sections for the unfiltered (real group) export', async () => {
+    const { service } = build({ members: [fullMember()] });
+
+    const state = await service.buildStateDocument('Iron Crew');
+
+    const doc = state!.document as Record<string, unknown>;
+    expect(doc.shared_bank).toBeDefined();
+    expect(doc.drop_rules).toBeDefined();
+    expect(doc.view_days).toBeDefined();
+  });
+});
+
+describe('GroupExportService.writeGroupEntries (filter + pathPrefix)', () => {
+  it('filters the ledger, feed and xp-sample queries to the given member', async () => {
+    const { service, prisma } = build({ members: [fullMember()] });
+    const zip = new ZipWriter(new PassThrough());
+    const at = new Date();
+
+    await service.writeGroupEntries(
+      zip,
+      'Iron Crew',
+      { groupId: 'g1', document: { group: { name: 'Iron Crew' } } },
+      at,
+      { filter: { memberId: 'm1', usernames: ['Zezima', 'OldZezima'] } },
+    );
+
+    expect(
+      (prisma.sharedBankEntry.findMany as jest.Mock).mock.calls[0][0].where,
+    ).toMatchObject({
+      memberName: { in: ['Zezima', 'OldZezima'], mode: 'insensitive' },
+    });
+    expect(
+      (prisma.achievement.findMany as jest.Mock).mock.calls[0][0].where,
+    ).toMatchObject({
+      memberName: { in: ['Zezima', 'OldZezima'], mode: 'insensitive' },
+    });
+    expect(
+      (prisma.member.findMany as jest.Mock).mock.calls[0][0].where,
+    ).toMatchObject({ id: 'm1' });
+  });
+
+  it('puts every entry under the given path prefix', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const { service } = build({
+      achievements: [achievement('a1', `${CDN}/achievements/g1/drops/one.png`)],
+      objects: { 'achievements/g1/drops/one.png': png },
+    });
+
+    const out = new PassThrough();
+    const chunks: Buffer[] = [];
+    out.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const zip = new ZipWriter(out);
+    await service.writeGroupEntries(
+      zip,
+      'Iron Crew',
+      { groupId: 'g1', document: { group: { name: 'Iron Crew' } } },
+      new Date(),
+      { pathPrefix: 'Iron Crew/', scope: 'player' },
+    );
+    await zip.finish();
+    out.end();
+
+    const files = entries(Buffer.concat(chunks));
+    expect(Object.keys(files).sort()).toEqual([
+      'Iron Crew/README.txt',
+      'Iron Crew/achievement-feed.ndjson',
+      'Iron Crew/bank-ledger.ndjson',
+      'Iron Crew/group.json',
+      'Iron Crew/screenshots/drop/one.png',
+      'Iron Crew/xp-samples.ndjson',
+    ]);
+    const feed = JSON.parse(
+      files['Iron Crew/achievement-feed.ndjson'].trim(),
+    ) as { image_file: string };
+    expect(feed.image_file).toBe('Iron Crew/screenshots/drop/one.png');
+    expect(files['Iron Crew/README.txt']).toContain('rs3groupiron.men/members');
   });
 });

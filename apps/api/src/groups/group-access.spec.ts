@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
 import { GroupsService } from './groups.service';
 import { XpHistoryService } from './xp-history.service';
+import type { PlayerVerificationService } from './player-verification.service';
 import { RareItemsService } from '../items/rare-items.service';
 
 const DEMO_TOKEN = 'demo-token-value';
@@ -191,6 +192,7 @@ describe('amILoggedIn', () => {
       new GamevalsService(),
       new QuestCatalogService(),
       rareItems(),
+      {} as PlayerVerificationService,
     );
   });
 

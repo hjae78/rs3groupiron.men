@@ -15,7 +15,8 @@ export const SITE_URL = 'https://rs3groupiron.men';
 export const PAGE_SEO = {
   login: {
     title: 'Login',
-    description: "Enter your group name and token to open your group's dashboard.",
+    description:
+      "Enter your group name and token to open your group's dashboard.",
   },
   getStarted: {
     title: 'Create your group',
@@ -31,6 +32,8 @@ export const PAGE_SEO = {
 
 /** Days between an erasure request and the purge; mirrors the API constant. */
 export const DELETION_GRACE_DAYS = 5;
+
+export const PLAYER_DELETION_GRACE_HOURS = 24;
 
 /** Max length for RuneScape usernames. */
 export const MAX_NAME = 12;

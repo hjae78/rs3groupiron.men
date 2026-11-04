@@ -7,6 +7,9 @@ import { deletionStatus } from './group-deletion';
 import { groupNameKey, sharesScope } from './group-access.service';
 import { SHARED_MEMBER } from './group.types';
 import { rowsToPairs } from './item-codec';
+import { PLAYER_DELETION_GRACE_MS } from './player-deletion';
+
+const PLAYER_DELETION_GRACE_HOURS = PLAYER_DELETION_GRACE_MS / (60 * 60 * 1000);
 
 export const EXPORT_VERSION = 1;
 
@@ -29,6 +32,14 @@ type Counts = {
   screenshots: number;
 };
 
+export type MemberFilter = { memberId: string; usernames: string[] };
+
+type WriteOptions = {
+  filter?: MemberFilter;
+  pathPrefix?: string;
+  scope?: 'group' | 'player';
+};
+
 @Injectable()
 export class GroupExportService {
   private readonly logger = new Logger(GroupExportService.name);
@@ -44,7 +55,7 @@ export class GroupExportService {
    * drop rules and view days. The three append-only series and the screenshots
    * are not in here — they are what the ZIP adds.
    */
-  async buildStateDocument(groupName: string) {
+  async buildStateDocument(groupName: string, filter?: MemberFilter) {
     const group = await this.prisma.group.findUnique({
       where: { nameKey: groupNameKey(groupName) },
       select: {
@@ -70,7 +81,11 @@ export class GroupExportService {
 
     const [members, groupInventories, rareItems, viewDays] = await Promise.all([
       this.prisma.member.findMany({
-        where: { groupId: group.id, name: { not: SHARED_MEMBER } },
+        where: {
+          groupId: group.id,
+          name: { not: SHARED_MEMBER },
+          ...(filter ? { id: filter.memberId } : {}),
+        },
         orderBy: { name: 'asc' },
         include: {
           skills: { orderBy: { skillId: 'asc' } },
@@ -194,29 +209,33 @@ export class GroupExportService {
             last_at: row.lastAt.toISOString(),
           })),
         })),
-        shared_bank: Object.fromEntries(
-          groupInventories.map((inv) => [
-            inv.key,
-            {
-              updated_at: inv.updatedAt.toISOString(),
-              items: rowsToPairs(inv.items),
-            },
-          ]),
-        ),
-        drop_rules: {
-          threshold: group.dropThreshold,
-          items: rareItems.map((row) => ({
-            item_id: row.itemId,
-            include: row.include,
-            min_qty: row.minQty,
-            max_qty: row.maxQty,
-            created_at: row.createdAt.toISOString(),
-          })),
-        },
-        view_days: viewDays.map((row) => ({
-          day: row.day.toISOString().slice(0, 10),
-          views: row.views,
-        })),
+        ...(filter
+          ? {}
+          : {
+              shared_bank: Object.fromEntries(
+                groupInventories.map((inv) => [
+                  inv.key,
+                  {
+                    updated_at: inv.updatedAt.toISOString(),
+                    items: rowsToPairs(inv.items),
+                  },
+                ]),
+              ),
+              drop_rules: {
+                threshold: group.dropThreshold,
+                items: rareItems.map((row) => ({
+                  item_id: row.itemId,
+                  include: row.include,
+                  min_qty: row.minQty,
+                  max_qty: row.maxQty,
+                  created_at: row.createdAt.toISOString(),
+                })),
+              },
+              view_days: viewDays.map((row) => ({
+                day: row.day.toISOString().slice(0, 10),
+                views: row.views,
+              })),
+            }),
       },
     };
   }
@@ -235,7 +254,24 @@ export class GroupExportService {
     state: { groupId: string; document: unknown },
   ): Promise<Counts> {
     const zip = new ZipWriter(out);
-    const at = new Date();
+    const counts = await this.writeGroupEntries(
+      zip,
+      groupName,
+      state,
+      new Date(),
+    );
+    await zip.finish();
+    return counts;
+  }
+
+  async writeGroupEntries(
+    zip: ZipWriter,
+    groupName: string,
+    state: { groupId: string; document: unknown },
+    at: Date,
+    options: WriteOptions = {},
+  ): Promise<Counts> {
+    const prefix = options.pathPrefix ?? '';
     const counts: Counts = {
       xp_samples: 0,
       bank_ledger: 0,
@@ -244,29 +280,66 @@ export class GroupExportService {
     };
 
     await zip.addText(
-      'group.json',
+      `${prefix}group.json`,
       `${JSON.stringify(state.document, null, 2)}\n`,
       { at },
     );
 
-    counts.bank_ledger = await this.writeLedger(zip, state.groupId, at);
-    const feed = await this.writeFeed(zip, state.groupId, at);
+    counts.bank_ledger = await this.writeLedger(
+      zip,
+      state.groupId,
+      at,
+      prefix,
+      options.filter,
+    );
+    const feed = await this.writeFeed(
+      zip,
+      state.groupId,
+      at,
+      prefix,
+      options.filter,
+    );
     counts.achievement_feed = feed.rows;
-    counts.xp_samples = await this.writeXpSamples(zip, state.groupId, at);
-    counts.screenshots = await this.writeScreenshots(zip, feed.images, at);
+    counts.xp_samples = await this.writeXpSamples(
+      zip,
+      state.groupId,
+      at,
+      prefix,
+      options.filter,
+    );
+    counts.screenshots = await this.writeScreenshots(
+      zip,
+      feed.images,
+      at,
+      prefix,
+    );
 
-    await zip.addText('README.txt', readme(groupName, counts, at), { at });
-    await zip.finish();
+    await zip.addText(
+      `${prefix}README.txt`,
+      readme(groupName, counts, at, options.scope ?? 'group'),
+      { at },
+    );
     return counts;
   }
 
-  private async writeLedger(zip: ZipWriter, groupId: string, at: Date) {
+  private async writeLedger(
+    zip: ZipWriter,
+    groupId: string,
+    at: Date,
+    prefix: string,
+    filter?: MemberFilter,
+  ) {
     const lines: string[] = [];
     let cursor: string | undefined;
     let rows = 0;
     for (;;) {
       const page = await this.prisma.sharedBankEntry.findMany({
-        where: { groupId },
+        where: {
+          groupId,
+          ...(filter
+            ? { memberName: { in: filter.usernames, mode: 'insensitive' } }
+            : {}),
+        },
         orderBy: { id: 'asc' },
         take: PAGE,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -286,11 +359,17 @@ export class GroupExportService {
       cursor = page[page.length - 1].id;
       if (page.length < PAGE || rows >= MAX_SERIES_ROWS) break;
     }
-    await zip.addText('bank-ledger.ndjson', join(lines), { at });
+    await zip.addText(`${prefix}bank-ledger.ndjson`, join(lines), { at });
     return rows;
   }
 
-  private async writeFeed(zip: ZipWriter, groupId: string, at: Date) {
+  private async writeFeed(
+    zip: ZipWriter,
+    groupId: string,
+    at: Date,
+    prefix: string,
+    filter?: MemberFilter,
+  ) {
     const lines: string[] = [];
     const images: Array<{ url: string; file: string }> = [];
     const seen = new Set<string>();
@@ -299,7 +378,12 @@ export class GroupExportService {
 
     for (;;) {
       const page = await this.prisma.achievement.findMany({
-        where: { groupId },
+        where: {
+          groupId,
+          ...(filter
+            ? { memberName: { in: filter.usernames, mode: 'insensitive' } }
+            : {}),
+        },
         orderBy: { id: 'asc' },
         take: PAGE,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -308,8 +392,11 @@ export class GroupExportService {
       for (const row of page) {
         let file: string | null = null;
         if (row.imageUrl) {
-          file = screenshotPath(row.imageUrl, row.kind, seen);
-          if (file) images.push({ url: row.imageUrl, file });
+          const path = screenshotPath(row.imageUrl, row.kind, seen);
+          if (path) {
+            file = `${prefix}${path}`;
+            images.push({ url: row.imageUrl, file });
+          }
         }
         lines.push(
           JSON.stringify({
@@ -332,18 +419,27 @@ export class GroupExportService {
       if (page.length < PAGE || rows >= MAX_SERIES_ROWS) break;
     }
 
-    await zip.addText('achievement-feed.ndjson', join(lines), { at });
+    await zip.addText(`${prefix}achievement-feed.ndjson`, join(lines), { at });
     return { rows, images };
   }
 
-  private async writeXpSamples(zip: ZipWriter, groupId: string, at: Date) {
+  private async writeXpSamples(
+    zip: ZipWriter,
+    groupId: string,
+    at: Date,
+    prefix: string,
+    filter?: MemberFilter,
+  ) {
     const members = await this.prisma.member.findMany({
-      where: { groupId },
+      where: {
+        groupId,
+        ...(filter ? { id: filter.memberId } : {}),
+      },
       select: { id: true, name: true },
     });
     const nameById = new Map(members.map((m) => [m.id, m.name]));
     if (!members.length) {
-      await zip.addText('xp-samples.ndjson', '', { at });
+      await zip.addText(`${prefix}xp-samples.ndjson`, '', { at });
       return 0;
     }
 
@@ -373,7 +469,7 @@ export class GroupExportService {
       if (page.length < PAGE || rows >= MAX_SERIES_ROWS) break;
     }
 
-    await zip.addText('xp-samples.ndjson', join(lines), { at });
+    await zip.addText(`${prefix}xp-samples.ndjson`, join(lines), { at });
     return rows;
   }
 
@@ -381,6 +477,7 @@ export class GroupExportService {
     zip: ZipWriter,
     images: Array<{ url: string; file: string }>,
     at: Date,
+    prefix: string,
   ) {
     if (!images.length || !this.r2.isConfigured()) return 0;
     let written = 0;
@@ -412,7 +509,7 @@ export class GroupExportService {
 
     if (missing.length) {
       await zip.addText(
-        'screenshots/MISSING.txt',
+        `${prefix}screenshots/MISSING.txt`,
         'These screenshots are referenced by the achievement feed but could ' +
           'not be read back from storage, so they are not in this archive:\n\n' +
           `${missing.join('\n')}\n`,
@@ -469,18 +566,43 @@ function screenshotSection(counts: Counts) {
 `;
 }
 
-function readme(groupName: string, counts: Counts, at: Date) {
+function readme(
+  groupName: string,
+  counts: Counts,
+  at: Date,
+  scope: 'group' | 'player' = 'group',
+) {
+  const forPlayer = scope === 'player';
+  const summary = forPlayer
+    ? 'This archive is your own records within this group, in machine-readable form.'
+    : 'This archive is everything we hold about this group, in machine-readable form.';
+  const groupJsonLine = forPlayer
+    ? `  group.json               Your member entry: skills, inventories, quest and
+                           achievement progress and NPC kill counts within
+                           this group. Group-wide settings and the shared
+                           bank are not included here — they are not your
+                           own data; see the group's own Settings -> Your
+                           data -> Export if you need those too.`
+    : `  group.json               Group settings, members, skills, inventories and
+                           bank contents, quest and achievement progress and
+                           NPC kill counts: the group's current state.`;
+  const deleting = forPlayer
+    ? `  rs3groupiron.men/members -> Delete my data. It takes a retyped username,
+  then erases everything above ${PLAYER_DELETION_GRACE_HOURS} hours later, across every group
+  you belong to — not just this one. You can cancel inside that window.`
+    : `  Settings -> Your data -> Delete group data. It takes two confirmations and
+  your group name and token retyped, then erases everything above five days
+  later. You can cancel inside those five days.`;
+
   return `RS3 Group Ironman — data export for "${groupName}"
 Generated ${at.toISOString()}
 
-This archive is everything we hold about this group, in machine-readable form.
+${summary}
 It is provided under your right to data portability (UK GDPR Article 20).
 
 FILES
 
-  group.json               Group settings, members, skills, inventories and
-                           bank contents, quest and achievement progress and
-                           NPC kill counts: the group's current state.
+${groupJsonLine}
   bank-ledger.ndjson       Every shared-bank movement. ${counts.bank_ledger} record(s).
   achievement-feed.ndjson  Every achievement, drop, level and quest recorded.
                            ${counts.achievement_feed} record(s).
@@ -503,9 +625,7 @@ NOT INCLUDED
 
 DELETING THIS DATA
 
-  Settings -> Your data -> Delete group data. It takes two confirmations and
-  your group name and token retyped, then erases everything above five days
-  later. You can cancel inside those five days.
+${deleting}
 
 QUESTIONS
 

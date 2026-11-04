@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2Service } from '../uploads/r2.service';
+import { PlayerDeletionService } from './player-deletion.service';
 
 const DEFAULT_SWEEP_MS = 60 * 60 * 1000;
 
@@ -18,6 +19,7 @@ export class GroupPurgeService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly r2: R2Service,
+    private readonly playerDeletion: PlayerDeletionService,
   ) {}
 
   private get sweepMs(): number {
@@ -59,10 +61,34 @@ export class GroupPurgeService implements OnModuleInit, OnModuleDestroy {
           );
         }
       }
+      purged += await this.sweepPlayers(now);
       return purged;
     } finally {
       this.running = false;
     }
+  }
+
+  private async sweepPlayers(now: Date): Promise<number> {
+    const due = await this.prisma.player.findMany({
+      where: { deleteAfter: { lte: now } },
+      select: { id: true, currentUsername: true },
+    });
+    let purged = 0;
+    for (const player of due) {
+      try {
+        await this.playerDeletion.purgePlayer(player.id);
+        purged += 1;
+        this.logger.log(
+          `purged player "${player.currentUsername}" (${player.id})`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `failed to purge player "${player.currentUsername}" (${player.id})`,
+          err instanceof Error ? err.stack : undefined,
+        );
+      }
+    }
+    return purged;
   }
 
   async purgeGroup(groupId: string) {

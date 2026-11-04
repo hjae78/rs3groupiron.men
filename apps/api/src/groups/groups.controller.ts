@@ -11,9 +11,11 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
   ServiceUnavailableException,
   Sse,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
@@ -21,7 +23,7 @@ import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Response } from 'express';
 import type { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { allowDevReset } from '../config/env';
+import { allowDevReset, isProduction } from '../config/env';
 import { GroupAccessService, visibleChangeKind } from './group-access.service';
 import { GroupEventsService } from './group-events.service';
 import { GroupExportService } from './group-export.service';
@@ -49,6 +51,19 @@ import {
   SetMemberOnlineBody,
 } from './group.types';
 import { GroupsService } from './groups.service';
+import { PlayerAccessService } from './player-access.service';
+import { PlayerDataService } from './player-data.service';
+import { PlayerDeletionService } from './player-deletion.service';
+import { ConfirmPlayerDeletionBody } from './player-deletion.types';
+import { isCredentialFresh } from './player-deletion';
+import { PlayerAuthGuard, type AuthedPlayerRequest } from './player-auth.guard';
+import { PlayerVerificationService } from './player-verification.service';
+import {
+  RedeemVerificationTokenBody,
+  RequestVerificationTokenBody,
+} from './player-verification.types';
+
+const VERIFY_LIMIT = isProduction() ? 5 : 50;
 
 /**
  * A group name may hold spaces and non-ASCII, neither of which belongs in a
@@ -137,14 +152,49 @@ export class GroupsAuthedController {
     private readonly access: GroupAccessService,
     private readonly events$: GroupEventsService,
     private readonly exporter: GroupExportService,
+    private readonly verification: PlayerVerificationService,
   ) {}
 
   @Get('am-i-logged-in')
   amILoggedIn(
     @Param('groupName') groupName: string,
     @Headers('authorization') authorization: string | undefined,
+    @Query('member') member?: string,
+    @Query('tracking_id') trackingId?: string,
   ) {
-    return this.groups.amILoggedIn(groupName, authorization);
+    return this.groups.amILoggedIn(
+      groupName,
+      authorization,
+      member,
+      trackingId,
+    );
+  }
+
+  @Post('verify-token')
+  @HttpCode(201)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 300000 } })
+  requestVerificationToken(
+    @Param('groupName') groupName: string,
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: RequestVerificationTokenBody,
+  ) {
+    return this.verification.requestToken(
+      groupName,
+      authorization,
+      body.name,
+      body.tracking_id,
+    );
+  }
+
+  @Get('verify-token-status')
+  verifyTokenStatus(
+    @Param('groupName') groupName: string,
+    @Headers('authorization') authorization: string | undefined,
+    @Query('code') code?: string,
+  ) {
+    if (!code) return { consumed: false };
+    return this.verification.checkTokenStatus(groupName, authorization, code);
   }
 
   /**
@@ -570,5 +620,118 @@ export class GroupsAuthedController {
     @Body() body: RenameMemberBody,
   ) {
     return this.groups.renameGroupMember(groupName, authorization, body);
+  }
+}
+
+@Controller('players')
+@UseGuards(ThrottlerGuard)
+export class PlayersController {
+  constructor(
+    private readonly verification: PlayerVerificationService,
+    private readonly playerAccess: PlayerAccessService,
+    private readonly playerDeletion: PlayerDeletionService,
+    private readonly playerData: PlayerDataService,
+  ) {}
+
+  @Post('verify')
+  @HttpCode(200)
+  @Throttle({ default: { limit: VERIFY_LIMIT, ttl: 300000 } })
+  verify(@Body() body: RedeemVerificationTokenBody) {
+    return this.verification.redeem(body.code, body.username);
+  }
+
+  @Get('me')
+  @UseGuards(PlayerAuthGuard)
+  @Header('Cache-Control', 'no-store')
+  me(@Req() req: AuthedPlayerRequest) {
+    return this.playerAccess.getProfile(req.playerId);
+  }
+
+  @Post('logout')
+  @HttpCode(200)
+  @UseGuards(PlayerAuthGuard)
+  async logout(@Req() req: AuthedPlayerRequest) {
+    await this.playerAccess.revoke(req.playerAccessToken);
+    return { ok: true };
+  }
+
+  @Post('rotate')
+  @HttpCode(200)
+  @UseGuards(PlayerAuthGuard)
+  async rotate(@Req() req: AuthedPlayerRequest) {
+    const next = await this.playerAccess.rotate(req.playerAccessToken);
+    if (!next) throw new UnauthorizedException('Invalid or expired session');
+    return {
+      access_token: next.token,
+      access_token_expires_at: next.expiresAt.toISOString(),
+    };
+  }
+
+  @Post('request-deletion')
+  @HttpCode(200)
+  @UseGuards(PlayerAuthGuard)
+  @Throttle({ default: { limit: 3, ttl: 300000 } })
+  requestDeletion(
+    @Req() req: AuthedPlayerRequest,
+    @Body() body: ConfirmPlayerDeletionBody,
+  ) {
+    if (!isCredentialFresh(req.credentialCreatedAt, new Date())) {
+      throw new UnauthorizedException(
+        'Re-verify through the plugin to confirm this is you before deleting',
+      );
+    }
+    return this.playerDeletion.requestDeletion(
+      req.playerId,
+      body.confirm_username,
+    );
+  }
+
+  @Post('cancel-deletion')
+  @HttpCode(200)
+  @UseGuards(PlayerAuthGuard)
+  cancelDeletion(@Req() req: AuthedPlayerRequest) {
+    return this.playerDeletion.cancelDeletion(req.playerId);
+  }
+
+  @Get('me/data')
+  @UseGuards(PlayerAuthGuard)
+  @Header('Cache-Control', 'no-store')
+  myData(@Req() req: AuthedPlayerRequest) {
+    return this.playerData.buildDocument(req.playerId);
+  }
+
+  @Get('me/export.zip')
+  @UseGuards(PlayerAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 300000 } })
+  async myExportZip(@Req() req: AuthedPlayerRequest, @Res() res: Response) {
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Cache-Control', 'no-store');
+    const day = new Date().toISOString().slice(0, 10);
+    res.setHeader(
+      'Content-Disposition',
+      contentDisposition(`rs3-group-ironman-my-data-${day}.zip`),
+    );
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    await this.playerData.writeExportArchive(res, req.playerId);
+    res.end();
+  }
+
+  @Get('sessions')
+  @UseGuards(PlayerAuthGuard)
+  @Header('Cache-Control', 'no-store')
+  sessions(@Req() req: AuthedPlayerRequest) {
+    return this.playerAccess.listSessions(req.playerId, req.playerAccessToken);
+  }
+
+  @Post('sessions/:id/revoke')
+  @HttpCode(200)
+  @UseGuards(PlayerAuthGuard)
+  async revokeSession(
+    @Req() req: AuthedPlayerRequest,
+    @Param('id') id: string,
+  ) {
+    await this.playerAccess.revokeById(req.playerId, id);
+    return { ok: true };
   }
 }

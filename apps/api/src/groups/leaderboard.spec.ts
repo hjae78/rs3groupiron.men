@@ -15,6 +15,7 @@ function row(over: Partial<LeaderboardRow> = {}): LeaderboardRow {
     name: 'Open Group',
     mode: 'normal',
     member_count: 3n,
+    verified_count: 1n,
     views_total: 120,
     recent_views: 40n,
     total_level: 4200n,
@@ -123,6 +124,13 @@ describe('leaderboardQuery', () => {
     expect(leaderboardQuery('total_level', since, 10).values).toContain('@SHARED');
   });
 
+  it('computes verified_count by joining members to players, gated on plugin_verified', () => {
+    const sql = leaderboardQuery('views', since, 10).sql;
+    expect(sql).toContain('"verified_count"');
+    expect(sql).toContain('JOIN "players" p ON p."id" = m3."player_id"');
+    expect(sql).toContain('\'plugin_verified\'::"PlayerVerificationStatus"');
+  });
+
   it('reads the stored total when the window is all time', () => {
     const sql = leaderboardQuery('views', null, 10).sql;
     expect(sql).toContain('"views_total" AS "recent_views"');
@@ -153,6 +161,7 @@ describe('toLeaderboardEntries', () => {
     expect(entry.recent_views).toBe(40);
     expect(entry.total_level).toBe(4200);
     expect(entry.member_count).toBe(3);
+    expect(entry.verified_count).toBe(1);
     expect(() => JSON.stringify(entry)).not.toThrow();
   });
 

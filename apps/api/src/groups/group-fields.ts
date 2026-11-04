@@ -119,9 +119,7 @@ export function validateDisplayName(
 ) {
   const name = raw?.trim() ?? '';
   if (name.length < 1 || name.length > maxLength) {
-    throw new BadRequestException(
-      `${label} must be 1–${maxLength} characters`,
-    );
+    throw new BadRequestException(`${label} must be 1–${maxLength} characters`);
   }
   return name;
 }
@@ -220,4 +218,17 @@ export function findMemberRef<T extends { name: string }>(
 
 export function playableCount(members: Array<{ name: string }>) {
   return members.filter((m) => m.name !== SHARED_MEMBER).length;
+}
+
+export function verifiedCount(
+  members: Array<{
+    name: string;
+    player: { verificationStatus: string } | null;
+  }>,
+) {
+  return members.filter(
+    (m) =>
+      m.name !== SHARED_MEMBER &&
+      m.player?.verificationStatus === 'plugin_verified',
+  ).length;
 }

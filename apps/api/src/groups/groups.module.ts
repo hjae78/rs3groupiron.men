@@ -8,19 +8,30 @@ import { GroupsSeedService } from './groups-seed.service';
 import {
   GroupsAuthedController,
   GroupsPublicController,
+  PlayersController,
 } from './groups.controller';
 import { GroupsService } from './groups.service';
+import { PlayerAccessService } from './player-access.service';
+import { PlayerAuthGuard } from './player-auth.guard';
+import { PlayerDataService } from './player-data.service';
+import { PlayerDeletionService } from './player-deletion.service';
+import { PlayerVerificationService } from './player-verification.service';
 import { XpHistoryService } from './xp-history.service';
 
 @Module({
   imports: [R2Module],
-  controllers: [GroupsPublicController, GroupsAuthedController],
+  controllers: [GroupsPublicController, GroupsAuthedController, PlayersController],
   providers: [
     GroupAccessService,
     GroupsService,
     GroupsSeedService,
     GroupExportService,
     GroupPurgeService,
+    PlayerVerificationService,
+    PlayerAccessService,
+    PlayerAuthGuard,
+    PlayerDeletionService,
+    PlayerDataService,
     XpHistoryService,
     GroupEventsService,
   ],

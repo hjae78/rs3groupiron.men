@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
 import { GroupsService } from './groups.service';
 import { XpHistoryService } from './xp-history.service';
+import type { PlayerVerificationService } from './player-verification.service';
 import { RareItemsService } from '../items/rare-items.service';
 
 const TOKEN = 'group-token-value';
@@ -66,6 +67,7 @@ function makeService(stored: string[]) {
     gamevals,
     new QuestCatalogService(),
     rareItems(),
+    {} as PlayerVerificationService,
   );
   return { groups, tx };
 }

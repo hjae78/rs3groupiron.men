@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchGroupData,
   fetchGroupInfo,
@@ -7,12 +7,13 @@ import {
 import {
   isFullMember,
   membersToPlayers,
+  withPresenceTimeout,
   type PlayerView,
   type WireMember,
 } from '../lib/items';
 import { openGroupStream, type GroupChangeKind } from '../lib/groupStream';
 import { maxLastUpdated, mergeDelta, type GroupCache } from '../lib/mergeDelta';
-import { FULL_REFRESH_EVERY_N_POLLS } from '../lib/polling';
+import { FULL_REFRESH_EVERY_N_POLLS, PRESENCE_CHECK_MS } from '../lib/polling';
 
 export type GroupData = {
   players: PlayerView[];
@@ -36,7 +37,11 @@ function samePlayers(a: PlayerView[], b: PlayerView[]) {
   return a.length === b.length && a.every((p, i) => p === b[i]);
 }
 
-export function useGroupData(groupName: string, token: string, pollMs: number): GroupData {
+export function useGroupData(
+  groupName: string,
+  token: string,
+  pollMs: number,
+): GroupData {
   const [players, setPlayers] = useState<PlayerView[]>([]);
   const [rawMembers, setRawMembers] = useState<WireMember[]>([]);
   const [dataRevision, setDataRevision] = useState(0);
@@ -63,18 +68,21 @@ export function useGroupData(groupName: string, token: string, pollMs: number): 
   const committedSeqRef = useRef(0);
   const failCountRef = useRef(0);
 
-  const commit = useCallback((seq: number, members: WireMember[], heavy = true) => {
-    if (seq < committedSeqRef.current) return;
-    committedSeqRef.current = seq;
-    cacheRef.current = { members, since: maxLastUpdated(members) };
-    setRawMembers(members);
-    if (heavy) setDataRevision((n) => n + 1);
-    const next = membersToPlayers(members, playersRef.current);
-    if (!samePlayers(next, playersRef.current)) {
-      playersRef.current = next;
-      setPlayers(next);
-    }
-  }, []);
+  const commit = useCallback(
+    (seq: number, members: WireMember[], heavy = true) => {
+      if (seq < committedSeqRef.current) return;
+      committedSeqRef.current = seq;
+      cacheRef.current = { members, since: maxLastUpdated(members) };
+      setRawMembers(members);
+      if (heavy) setDataRevision((n) => n + 1);
+      const next = membersToPlayers(members, playersRef.current);
+      if (!samePlayers(next, playersRef.current)) {
+        playersRef.current = next;
+        setPlayers(next);
+      }
+    },
+    [],
+  );
 
   const applyKinds = useCallback((kinds: GroupChangeKind[]) => {
     for (const kind of kinds) {
@@ -93,7 +101,9 @@ export function useGroupData(groupName: string, token: string, pollMs: number): 
 
       const [data, nextInfo] = await Promise.all([
         fetchGroupData(groupName, token, delta),
-        opts.withInfo ? fetchGroupInfo(groupName, token) : Promise.resolve(null),
+        opts.withInfo
+          ? fetchGroupInfo(groupName, token)
+          : Promise.resolve(null),
       ]);
       if (generation !== generationRef.current) return;
       // A newer response already landed; this one is stale.
@@ -105,7 +115,10 @@ export function useGroupData(groupName: string, token: string, pollMs: number): 
         commit(seq, data.filter(isFullMember));
         return;
       }
-      const result = mergeDelta(cacheRef.current ?? { members: [], since: null }, data);
+      const result = mergeDelta(
+        cacheRef.current ?? { members: [], since: null },
+        data,
+      );
       if (!result) {
         // Unknown member in delta response: fall back to a full fetch.
         const full = await fetchGroupData(groupName, token);
@@ -128,11 +141,14 @@ export function useGroupData(groupName: string, token: string, pollMs: number): 
     }
   }, [load]);
 
-  const patchPlayers = useCallback((update: (prev: PlayerView[]) => PlayerView[]) => {
-    const next = update(playersRef.current);
-    playersRef.current = next;
-    setPlayers(next);
-  }, []);
+  const patchPlayers = useCallback(
+    (update: (prev: PlayerView[]) => PlayerView[]) => {
+      const next = update(playersRef.current);
+      playersRef.current = next;
+      setPlayers(next);
+    },
+    [],
+  );
 
   const needFullRef = useRef(true);
 
@@ -276,8 +292,18 @@ export function useGroupData(groupName: string, token: string, pollMs: number): 
     };
   }, [load, pollMs, streaming]);
 
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), PRESENCE_CHECK_MS);
+    return () => window.clearInterval(id);
+  }, []);
+  const livePlayers = useMemo(
+    () => withPresenceTimeout(players, now),
+    [players, now],
+  );
+
   return {
-    players,
+    players: livePlayers,
     rawMembers,
     info,
     loading,

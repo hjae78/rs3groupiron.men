@@ -57,6 +57,7 @@ export type LeaderboardRow = {
   name: string;
   mode: string;
   member_count: bigint | number;
+  verified_count: bigint | number;
   views_total: number;
   recent_views: bigint | number;
   total_level: bigint | number;
@@ -68,6 +69,7 @@ export type LeaderboardEntry = {
   name: string;
   mode: string;
   member_count: number;
+  verified_count: number;
   views: number;
   recent_views: number;
   total_level: number;
@@ -82,6 +84,7 @@ export function toLeaderboardEntries(
     name: row.name,
     mode: row.mode,
     member_count: Number(row.member_count),
+    verified_count: Number(row.verified_count),
     views: row.views_total,
     recent_views: Number(row.recent_views),
     total_level: Number(row.total_level),
@@ -139,7 +142,14 @@ export function leaderboardQuery(
           SELECT COUNT(*)
           FROM "members" m2
           WHERE m2."group_id" = g."id" AND m2."name" <> ${SHARED_MEMBER}
-        ) AS "member_count"
+        ) AS "member_count",
+        (
+          SELECT COUNT(*)
+          FROM "members" m3
+          JOIN "players" p ON p."id" = m3."player_id"
+          WHERE m3."group_id" = g."id"
+            AND p."verification_status" = 'plugin_verified'::"PlayerVerificationStatus"
+        ) AS "verified_count"
       FROM "groups" g
       WHERE g."visibility" = 'public'::"GroupVisibility" ${visible}
     ) t

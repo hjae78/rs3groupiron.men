@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
 import { GroupsService } from './groups.service';
 import { XpHistoryService } from './xp-history.service';
+import type { PlayerVerificationService } from './player-verification.service';
 import { RareItemsService } from '../items/rare-items.service';
 
 const TOKEN = 'group-token-value';
@@ -33,6 +34,7 @@ function makeService(
   };
   const prisma = {
     $transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    member: { findUnique: jest.fn().mockResolvedValue({ player: null }) },
     group: {
       findUnique: () =>
         Promise.resolve({
@@ -56,6 +58,7 @@ function makeService(
     new GamevalsService(),
     new QuestCatalogService(),
     rareItems(),
+    {} as PlayerVerificationService,
   );
   return { groups, tx };
 }

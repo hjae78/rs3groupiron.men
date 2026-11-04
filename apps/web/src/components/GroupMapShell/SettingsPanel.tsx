@@ -85,13 +85,18 @@ export function SettingsPanel({
   const [addOpen, setAddOpen] = useState(false);
   const [removeName, setRemoveName] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [downloading, setDownloading] = useState<'data' | 'archive' | null>(null);
-  const { isBusy, message, error, setMessage, setError, run } = useAsyncAction();
+  const [downloading, setDownloading] = useState<'data' | 'archive' | null>(
+    null,
+  );
+  const { isBusy, message, error, setMessage, setError, run } =
+    useAsyncAction();
 
   // No token means this is the public demo, which the server serves read-only.
   const readOnly = !groupToken;
   const canAdd = players.length < memberSlots && !readOnly;
   const canRemove = players.length > MIN_SLOTS && !readOnly;
+  const verifiedCount = players.filter((p) => p.verified).length;
+  const fullyVerified = players.length > 0 && verifiedCount === players.length;
 
   const sortedPlayers = useMemo(
     () => [...players].sort((a, b) => a.name.localeCompare(b.name)),
@@ -171,6 +176,9 @@ export function SettingsPanel({
           <span className="gms-settings-hint">
             {players.length} / {memberSlots} slots filled
             {canAdd ? ' · open slot available' : ' · group full'}
+            {' · '}
+            {verifiedCount}/{players.length} verified
+            {fullyVerified && ' — Fully Verified'}
           </span>
         </div>
 
@@ -276,7 +284,6 @@ export function SettingsPanel({
         }
       />
 
-
       <DataSection
         deletion={deletion}
         busy={isBusy}
@@ -322,7 +329,11 @@ export function SettingsPanel({
           onClose={() => setDeleteOpen(false)}
           onConfirm={(confirm) =>
             save('request-deletion', async () => {
-              const result = await requestGroupDeletion(groupName, groupToken, confirm);
+              const result = await requestGroupDeletion(
+                groupName,
+                groupToken,
+                confirm,
+              );
               setDeleteOpen(false);
               setMessage(
                 result.delete_after

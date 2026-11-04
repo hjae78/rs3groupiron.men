@@ -27,6 +27,7 @@ const modeLabel = (mode: string) => (mode === 'competitive' ? 'Competitive' : 'N
 type RowData = {
   name: string;
   members: number;
+  verified: number;
   mode: string;
   value: number;
   label: string;
@@ -36,6 +37,7 @@ function boardRow(entry: LeaderboardEntry, kind: 'views' | 'level'): RowData {
   return {
     name: entry.name,
     members: entry.member_count,
+    verified: entry.verified_count,
     mode: entry.mode,
     value: kind === 'level' ? entry.total_level : entry.views,
     label: kind === 'level' ? 'TOTAL LEVEL' : 'VIEWS',
@@ -199,6 +201,7 @@ function Results({ query }: { query: string }) {
               data={{
                 name: group.name,
                 members: group.member_count,
+                verified: group.verified_count,
                 mode: group.mode,
                 value: group.views,
                 label: 'VIEWS',
@@ -311,6 +314,10 @@ function Row({ rank, data }: { rank?: number; data: RowData }) {
           <span className="dsc-row-name">{data.name}</span>
           <span className="dsc-row-sub">
             {data.members} {data.members === 1 ? 'member' : 'members'} · {modeLabel(data.mode)}
+            {data.members > 0 &&
+              ` · ${data.verified}/${data.members} verified${
+                data.verified === data.members ? ' — Fully Verified' : ''
+              }`}
           </span>
         </span>
         <span className="dsc-row-stat">

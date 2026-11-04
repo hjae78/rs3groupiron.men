@@ -141,8 +141,20 @@
     var(--band) 0 1px,
     transparent 1px 7px
   );
-  mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 30%,
+    #000 70%,
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 30%,
+    #000 70%,
+    transparent
+  );
 }
 
 .hero-tagline {
@@ -435,6 +447,10 @@
  * "what is missing?" before it answers "did that work?".
  */
 .hero-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   height: 46px;
   border: 1px solid var(--line2);
   border-radius: 6px;
@@ -443,8 +459,12 @@
   font: inherit;
   font-size: 15px;
   font-weight: 700;
+  text-decoration: none;
   cursor: default;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s;
 }
 
 .hero-submit--ready {
@@ -456,6 +476,182 @@
 
 .hero-submit:disabled {
   cursor: default;
+}
+
+/* For a destructive action — distinct from the gold "ready" accent used for
+ * ordinary submits, so danger reads as danger regardless of busy/disabled
+ * state. */
+.hero-submit--danger {
+  border-color: var(--emberText);
+  background: color-mix(in srgb, var(--emberText) 26%, var(--surface2));
+  color: var(--text);
+  cursor: pointer;
+}
+
+.hero-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.hero-inline-actions .hero-submit {
+  flex: none;
+  width: auto;
+  padding: 0 22px;
+}
+
+.hero-center {
+  text-align: center;
+}
+
+.hero-username {
+  margin: 0;
+  font: 400 24px/1.1 var(--font-display);
+  color: var(--text);
+}
+
+.hero-accent {
+  color: var(--gold);
+}
+
+.hero-divider {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line2);
+}
+
+/* Looks like a modal without pulling in Modal.tsx/GroupMapShell.css. */
+.hero-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, black 70%, transparent);
+}
+
+.hero-overlay-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+
+.hero-pending-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--emberText);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--emberText) 12%, transparent);
+}
+
+/* Grid instead of default dl stacking, so each dt pairs with its dd on one row. */
+.hero-card dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: baseline;
+}
+
+.hero-card dt {
+  font-weight: 700;
+  color: var(--dim);
+}
+
+.hero-card dd {
+  margin: 0;
+}
+
+.hero-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--line2);
+  padding-bottom: 10px;
+}
+
+.hero-tab {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.hero-tab:hover {
+  color: var(--text);
+}
+
+.hero-tab--active {
+  border-color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 20%, transparent);
+  color: var(--text);
+}
+
+.hero-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hero-session-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--surface2);
+}
+
+.hero-session-item p {
+  margin: 0;
+  flex: 1 1 220px;
+}
+
+.hero-session-revoke {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.hero-session-revoke:hover {
+  border-color: var(--emberText);
+  color: var(--emberText);
 }
 
 /* ——— Create group ——— */
@@ -834,7 +1030,11 @@
   border-radius: 6px;
   background: var(--bg);
   color: var(--goldHi);
-  font: 13px/1 ui-monospace, Menlo, Consolas, monospace;
+  font:
+    13px/1 ui-monospace,
+    Menlo,
+    Consolas,
+    monospace;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -902,14 +1102,30 @@
   animation: hero-up 0.75s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.hero-stagger > *:nth-child(1) { animation-delay: 0s; }
-.hero-stagger > *:nth-child(2) { animation-delay: 0.06s; }
-.hero-stagger > *:nth-child(3) { animation-delay: 0.12s; }
-.hero-stagger > *:nth-child(4) { animation-delay: 0.18s; }
-.hero-stagger > *:nth-child(5) { animation-delay: 0.26s; }
-.hero-stagger > *:nth-child(6) { animation-delay: 0.34s; }
-.hero-stagger > *:nth-child(7) { animation-delay: 0.42s; }
-.hero-stagger > *:nth-child(8) { animation-delay: 0.5s; }
+.hero-stagger > *:nth-child(1) {
+  animation-delay: 0s;
+}
+.hero-stagger > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.hero-stagger > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.hero-stagger > *:nth-child(4) {
+  animation-delay: 0.18s;
+}
+.hero-stagger > *:nth-child(5) {
+  animation-delay: 0.26s;
+}
+.hero-stagger > *:nth-child(6) {
+  animation-delay: 0.34s;
+}
+.hero-stagger > *:nth-child(7) {
+  animation-delay: 0.42s;
+}
+.hero-stagger > *:nth-child(8) {
+  animation-delay: 0.5s;
+}
 
 @media (max-width: 560px) {
   .hero-actions {
@@ -974,7 +1190,10 @@
   text-align: center;
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s;
 }
 
 .glk-btn:hover {

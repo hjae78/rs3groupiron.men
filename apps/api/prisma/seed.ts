@@ -72,6 +72,7 @@ async function main() {
   await prisma.groupInventory.deleteMany();
   await prisma.member.deleteMany();
   await prisma.group.deleteMany();
+  await prisma.player.deleteMany();
 
   for (const group of seed.groups) {
     const created = await prisma.group.create({
@@ -116,9 +117,19 @@ async function main() {
         continue;
       }
 
+      const player = await prisma.player.create({
+        data: {
+          currentUsername: member.name,
+          usernameKey: member.name.toLowerCase(),
+          usernameHistory: { create: { username: member.name } },
+        },
+        select: { id: true },
+      });
+
       const row = await prisma.member.create({
         data: {
           groupId: created.id,
+          playerId: player.id,
           name: member.name,
           nickname: member.nickname?.trim() || null,
           discordId: member.discord_id?.trim() || null,

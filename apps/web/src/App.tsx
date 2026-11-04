@@ -22,7 +22,9 @@ const GroupPage = lazy(() =>
   import('./pages/GroupPage').then((m) => ({ default: m.GroupPage })),
 );
 const PublicGroupPage = lazy(() =>
-  import('./pages/PublicGroupPage').then((m) => ({ default: m.PublicGroupPage })),
+  import('./pages/PublicGroupPage').then((m) => ({
+    default: m.PublicGroupPage,
+  })),
 );
 
 // Split for the same reason: the three policies are ~30 KB of prose that a
@@ -36,6 +38,10 @@ const LegalPage = lazy(() =>
 // chunk that every visitor downloads.
 const AdminPage = lazy(() =>
   import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })),
+);
+
+const MembersPage = lazy(() =>
+  import('./pages/MembersPage').then((m) => ({ default: m.MembersPage })),
 );
 
 const FALLBACK = <GroupSkeleton />;
@@ -52,9 +58,15 @@ export default function App() {
           <Route path="login" element={<LoginPage />} />
           <Route path="discover" element={<BrowsePage />} />
           {LEGAL_PAGES.map((page) => (
-            <Route key={page.slug} path={page.slug} element={<LegalPage slug={page.slug} />} />
+            <Route
+              key={page.slug}
+              path={page.slug}
+              element={<LegalPage slug={page.slug} />}
+            />
           ))}
           <Route path="admin" element={<AdminPage />} />
+          <Route path="members" element={<MembersPage />} />
+          <Route path="verify" element={<Navigate to="/members" replace />} />
           <Route path="demo" element={<DemoPage />} />
           <Route path="group" element={<GroupPage />} />
           {/* Somebody else's public group: the name is in the path because the

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { discordAvatarUrl, type PlayerView } from '../../lib/items';
 import { MIN_SLOTS } from '../../lib/constants';
 import { MemberAvatarOptions } from './MemberAvatarOptions';
-import { RemoveIcon, SaveIcon } from './icons';
+import { RemoveIcon, SaveIcon, VerifiedIcon } from './icons';
 
 export type MemberDraft = {
   nickname: string;
@@ -62,6 +62,11 @@ export function MemberCard({ player, canRemove, busy, onSave, onRemove }: Member
           />
         )}
         <strong className="gms-settings-rsn">{player.name}</strong>
+        {player.verified && (
+          <span title="Verified RuneScape account owner">
+            <VerifiedIcon />
+          </span>
+        )}
         <button
           type="button"
           className="gms-settings-icon-btn gms-settings-danger gms-settings-remove-top"

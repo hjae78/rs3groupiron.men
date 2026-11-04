@@ -10,6 +10,7 @@ import {
   pairsToRows,
 } from './item-codec';
 import { XpHistoryService } from './xp-history.service';
+import type { PlayerVerificationService } from './player-verification.service';
 import { RareItemsService } from '../items/rare-items.service';
 
 const TOKEN = 'group-token-value';
@@ -76,6 +77,7 @@ function makeService(opts: {
 
   const prisma = {
     $transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    member: { findUnique: jest.fn().mockResolvedValue({ player: null }) },
     group: {
       findUnique: () =>
         Promise.resolve({
@@ -100,6 +102,7 @@ function makeService(opts: {
     new GamevalsService(),
     new QuestCatalogService(),
     rareItems(),
+    {} as PlayerVerificationService,
   );
 
   /** Every `dataUpdatedAt` the write path set, if any. */
