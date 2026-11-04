@@ -1447,7 +1447,6 @@ export class GroupsService {
         await tx.member.update({
           where: { id: memberId },
           data: {
-            lastUpdated: now,
             online: true,
             inLobby: false,
             ...(vitals ?? {}),
@@ -1459,6 +1458,7 @@ export class GroupsService {
           },
           select: { id: true },
         });
+        await tx.$executeRaw`UPDATE "members" SET "last_updated" = GREATEST("last_updated", ${now}) WHERE id = ${memberId}`;
 
         // Only true once a write below reports a real change.
         let heavyChanged = false;
@@ -1466,22 +1466,24 @@ export class GroupsService {
         // Named wire fields first, then the generic map. A key present in
         // both is written twice and the generic one wins, which is harmless.
         if (body.inventory) {
-          heavyChanged ||= await this.replaceMemberInventory(
+          const changed = await this.replaceMemberInventory(
             tx,
             memberId,
             WIRE_INVENTORIES.inventory,
             body.inventory,
             now,
           );
+          heavyChanged ||= changed;
         }
         if (body.equipment) {
-          heavyChanged ||= await this.replaceMemberInventory(
+          const changed = await this.replaceMemberInventory(
             tx,
             memberId,
             WIRE_INVENTORIES.equipment,
             body.equipment,
             now,
           );
+          heavyChanged ||= changed;
         }
 
         // Compute the final bank once: full bank (+ deposits) or current + deposits.
@@ -1499,24 +1501,26 @@ export class GroupsService {
           finalBank = mergeItemPairs(currentBank, body.deposited!);
         }
         if (finalBank) {
-          heavyChanged ||= await this.replaceMemberInventory(
+          const changed = await this.replaceMemberInventory(
             tx,
             memberId,
             WIRE_INVENTORIES.bank,
             finalBank,
             now,
           );
+          heavyChanged ||= changed;
         }
 
         if (inventories) {
           for (const [key, pairs] of Object.entries(inventories)) {
-            heavyChanged ||= await this.replaceMemberInventory(
+            const changed = await this.replaceMemberInventory(
               tx,
               memberId,
               key,
               pairs,
               now,
             );
+            heavyChanged ||= changed;
           }
         }
 
@@ -1591,13 +1595,14 @@ export class GroupsService {
             const key =
               (WIRE_INVENTORIES as Record<string, string>)[field] ?? field;
             if (snapshotKeys.has(key)) continue;
-            heavyChanged ||= await this.applyMemberInventoryChanges(
+            const changed = await this.applyMemberInventoryChanges(
               tx,
               memberId,
               key,
               pairs,
               now,
             );
+            heavyChanged ||= changed;
           }
         }
 
@@ -1606,11 +1611,7 @@ export class GroupsService {
         // member's bank after a no-op resend. Guarded by mayTouchHeavyData so a
         // position-only ping still cannot reach it.
         if (mayTouchHeavyData && heavyChanged) {
-          await tx.member.update({
-            where: { id: memberId },
-            data: { dataUpdatedAt: now },
-            select: { id: true },
-          });
+          await tx.$executeRaw`UPDATE "members" SET "data_updated_at" = GREATEST("data_updated_at", ${now}) WHERE id = ${memberId}`;
         }
         dataChanged = heavyChanged;
       },

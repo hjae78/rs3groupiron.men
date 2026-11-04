@@ -18,6 +18,7 @@ const MEMBER = 'IronJackery';
 function makeService() {
   const tx = {
     member: { update: jest.fn().mockResolvedValue({ id: 'm1' }) },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
     memberSkill: {
       findMany: jest
         .fn()

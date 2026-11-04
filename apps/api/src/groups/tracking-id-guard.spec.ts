@@ -26,6 +26,7 @@ function rareItems() {
 function makeService(trackingIdHash: string | null) {
   const tx = {
     member: { update: jest.fn().mockResolvedValue({ id: 'm1' }) },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
   };
   const memberFindUnique = jest
     .fn()

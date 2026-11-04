@@ -24,6 +24,7 @@ function makeService(
       update: jest.fn().mockResolvedValue({ id: 'm1' }),
       create: jest.fn().mockResolvedValue({ id: 'm1' }),
     },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
     groupInventory: {
       findUnique: jest.fn().mockResolvedValue({ contentHash: 'stale' }),
       upsert: jest.fn().mockResolvedValue({ id: 'ginv1' }),

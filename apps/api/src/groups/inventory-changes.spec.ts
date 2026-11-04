@@ -21,6 +21,7 @@ type Row = { slot: number; itemId: number; quantity: number };
 function makeService(memberBank: Row[], sharedBank: Row[]) {
   const tx = {
     member: { update: jest.fn().mockResolvedValue({ id: 'm1' }) },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
     memberInventory: {
       upsert: jest.fn().mockResolvedValue({ id: 'inv-bank' }),
       update: jest.fn().mockResolvedValue({ id: 'inv-bank' }),
@@ -104,7 +105,8 @@ describe('inventory_changes', () => {
       ],
     });
     expect(tx.memberInventory.update).toHaveBeenCalledTimes(1);
-    expect(tx.member.update).toHaveBeenCalledTimes(2);
+    expect(tx.member.update).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
       ok: true,
       applied: ['inventory_changes'],

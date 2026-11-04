@@ -22,6 +22,7 @@ function makeService() {
       update: jest.fn().mockResolvedValue({ id: 'm1' }),
       create: jest.fn().mockResolvedValue({ id: 'm2' }),
     },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
   };
   const prisma = {
     $transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),

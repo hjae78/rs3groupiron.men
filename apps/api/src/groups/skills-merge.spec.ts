@@ -25,6 +25,7 @@ function makeService(
 ) {
   const tx = {
     member: { update: jest.fn().mockResolvedValue({ id: 'm1' }) },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
     memberSkill: {
       findMany: jest.fn().mockResolvedValue(stored),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),

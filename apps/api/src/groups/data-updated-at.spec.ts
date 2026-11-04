@@ -51,6 +51,12 @@ function makeService(opts: {
         return Promise.resolve({ id: 'm1' });
       }),
     },
+    $executeRaw: jest.fn((strings: readonly string[]) => {
+      if (strings[0].includes('data_updated_at')) {
+        memberUpdates.push({ dataUpdatedAt: true });
+      }
+      return Promise.resolve(1);
+    }),
     memberInventory: {
       findUnique: jest.fn(
         ({ where }: { where: { memberId_key: { key: string } } }) =>

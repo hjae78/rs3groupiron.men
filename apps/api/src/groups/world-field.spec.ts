@@ -21,6 +21,7 @@ function makeService() {
         Promise.resolve({ id: 'm1' }),
       ),
     },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
   };
   const prisma = {
     $transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
