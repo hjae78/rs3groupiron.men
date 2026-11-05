@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { formatGp, getItemPrices } from '../../lib/itemPrices';
 import { formatQty, qtyColorClass, type GroupItem } from '../../lib/items';
 import { anyMenuOpen, subscribeMenuState } from '../../lib/menuState';
+import { clampAxis } from '../../lib/viewportClamp';
 
 export type ItemTooltipState = {
   item: GroupItem;
@@ -33,11 +34,9 @@ function clamp(tip: HTMLElement, anchor: DOMRect): CSSProperties {
   const right = anchor.right + GAP;
   const left = right + width <= window.innerWidth - PAD ? right : anchor.left - width - GAP;
 
-  const top = Math.max(PAD, Math.min(anchor.top, window.innerHeight - height - PAD));
-
   return {
-    left: Math.max(PAD, Math.min(left, window.innerWidth - width - PAD)),
-    top,
+    left: clampAxis(left, width, window.innerWidth, PAD),
+    top: clampAxis(anchor.top, height, window.innerHeight, PAD),
     opacity: 1,
   };
 }

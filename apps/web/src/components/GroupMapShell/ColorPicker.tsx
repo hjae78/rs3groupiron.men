@@ -17,6 +17,7 @@ import {
   isHex,
   type Hsv,
 } from '../../lib/colorPicker';
+import { clampAxis } from '../../lib/viewportClamp';
 
 type ColorPickerProps = {
   color: string;
@@ -32,15 +33,12 @@ const EDGE = 8;
 
 /** Below the anchor when there is room, otherwise above it, always on screen. */
 function place(anchor: DOMRect, height: number): CSSProperties {
-  const left = Math.min(
-    Math.max(EDGE, anchor.right - WIDTH),
-    window.innerWidth - WIDTH - EDGE,
-  );
+  const left = clampAxis(anchor.right - WIDTH, WIDTH, window.innerWidth, EDGE);
   const below = anchor.bottom + GAP + height <= window.innerHeight - EDGE;
   const top = below
     ? anchor.bottom + GAP
     : Math.max(EDGE, anchor.top - GAP - height);
-  return { left: Math.max(EDGE, left), top };
+  return { left, top };
 }
 
 /**

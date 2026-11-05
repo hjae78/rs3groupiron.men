@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useRef, useState, type CSSProperties } from 're
 import { createPortal } from 'react-dom';
 import { formatQty, type PlayerSkill } from '../../lib/items';
 import { MAX_SKILL_XP, combatLevelFromSkills, xpForLevel } from '../../lib/skills';
+import { clampAxis } from '../../lib/viewportClamp';
 
 type SkillTip = {
   skillId: string;
@@ -18,13 +19,11 @@ function clampSkillTipStyle(tipEl: HTMLElement, anchor: DOMRect): CSSProperties 
   const pad = 8;
   const gap = 8;
   const { width, height } = tipEl.getBoundingClientRect();
-  let left = anchor.left + anchor.width / 2 - width / 2;
-  left = Math.max(pad, Math.min(left, window.innerWidth - width - pad));
+  const left = clampAxis(anchor.left + anchor.width / 2 - width / 2, width, window.innerWidth, pad);
 
   const above = anchor.top - height - gap;
   const below = anchor.bottom + gap;
-  let top = above >= pad ? above : Math.min(below, window.innerHeight - height - pad);
-  top = Math.max(pad, top);
+  const top = above >= pad ? above : clampAxis(below, height, window.innerHeight, pad);
 
   return { left, top, opacity: 1 };
 }
