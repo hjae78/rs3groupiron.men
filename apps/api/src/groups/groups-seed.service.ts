@@ -8,6 +8,8 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { deterministicHash } from '../common/hash';
+import { spreadTimestamp } from '../common/spread-timestamp';
 import { isProduction, seedDemo } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildSyntheticAchievements } from './achievements';
@@ -326,12 +328,6 @@ const LEDGER_SEED_DAYS = 14;
 const LEDGER_SEED_MIN = 40;
 const LEDGER_SEED_SPREAD = 21; // 40–60 entries
 
-function seedHash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return h;
-}
-
 /**
  * Plausible shared-bank movements over the last ~14 days, spread across the
  * group's real members and the item ids actually present in its shared bank.
@@ -346,33 +342,26 @@ export function buildSyntheticLedgerEntries(
 ): Prisma.SharedBankEntryCreateManyInput[] {
   if (!memberNames.length || !itemIds.length) return [];
 
-  const base = seedHash(groupName);
+  const base = deterministicHash(groupName);
   const count = LEDGER_SEED_MIN + (base % LEDGER_SEED_SPREAD);
   const windowMs = LEDGER_SEED_DAYS * 24 * 60 * 60 * 1000;
   const rows: Prisma.SharedBankEntryCreateManyInput[] = [];
 
   for (let i = 0; i < count; i++) {
-    const h = seedHash(`${groupName}:${i}`);
+    const h = deterministicHash(`${groupName}:${i}`);
     const memberName =
-      memberNames[seedHash(`m${i}${groupName}`) % memberNames.length];
-    const itemId = itemIds[seedHash(`i${i}${groupName}`) % itemIds.length];
+      memberNames[deterministicHash(`m${i}${groupName}`) % memberNames.length];
+    const itemId = itemIds[deterministicHash(`i${i}${groupName}`) % itemIds.length];
     // ~65% deposits, 35% withdrawals.
-    const deposit = seedHash(`d${i}${groupName}`) % 100 < 65;
-    const magnitude = 1 + (seedHash(`q${i}${groupName}`) % 40);
+    const deposit = deterministicHash(`d${i}${groupName}`) % 100 < 65;
+    const magnitude = 1 + (deterministicHash(`q${i}${groupName}`) % 40);
     // Coins-like stackables move in much larger amounts.
     const scale =
-      itemId === 995 ? 25_000 * (1 + (seedHash(`s${i}${groupName}`) % 40)) : 1;
+      itemId === 995 ? 25_000 * (1 + (deterministicHash(`s${i}${groupName}`) % 40)) : 1;
     const delta = (deposit ? 1 : -1) * magnitude * scale;
     // Evenly spread across the window, then jittered within its own slice so
     // the timeline looks organic instead of metronomic.
-    const slice = 1 / count;
-    const agoFraction = Math.min(
-      1,
-      (count - 1 - i) * slice + ((h % 1000) / 1000) * slice,
-    );
-    const createdAt = new Date(
-      endAt.getTime() - Math.floor(agoFraction * windowMs),
-    );
+    const createdAt = spreadTimestamp(i, count, windowMs, endAt, h);
     rows.push({ groupId, memberName, itemId, delta, createdAt });
   }
 

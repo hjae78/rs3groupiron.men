@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deterministicHash } from '../common/hash';
 import { SKILL_BY_ID, SKILLS, type SkillId } from '../skills/skills.catalog';
 import { PrismaService } from '../prisma/prisma.service';
 import { SHARED_MEMBER } from './group.types';
@@ -289,39 +290,41 @@ export class XpHistoryService {
     }
 
     // Nothing before the window means tracking started inside it, so the
-    // earliest sample we do have is the baseline. Falling straight through to
-    // the member's current XP would make every gain clamp to zero, because
-    // every sample in the window is lower than where they are now.
+    // earliest sample we do have is the baseline (otherwise every gain would
+    // clamp to zero). Still nothing at all means the member has no visible
+    // history, so their current XP is the baseline. Neither fallback depends
+    // on the other's result, so when the first query didn't cover every
+    // pair, both run together instead of one after the other.
     if (memberIds.length * skillIds.length - baselines.size > 0) {
-      const inWindow = await this.prisma.$queryRaw<
-        Array<{ memberId: string; skillId: string; xp: bigint }>
-      >`
-        SELECT DISTINCT ON ("member_id", "skill_id")
-          "member_id" AS "memberId",
-          "skill_id" AS "skillId",
-          "xp"
-        FROM "skill_xp_samples"
-        WHERE "member_id" = ANY(${memberIds}::text[])
-          AND "skill_id" = ANY(${skillIds}::text[])
-          AND "sampled_at" > (${from}::timestamptz AT TIME ZONE 'UTC')
-        ORDER BY "member_id", "skill_id", "sampled_at" ASC
-      `;
+      const [inWindow, current] = await Promise.all([
+        this.prisma.$queryRaw<
+          Array<{ memberId: string; skillId: string; xp: bigint }>
+        >`
+          SELECT DISTINCT ON ("member_id", "skill_id")
+            "member_id" AS "memberId",
+            "skill_id" AS "skillId",
+            "xp"
+          FROM "skill_xp_samples"
+          WHERE "member_id" = ANY(${memberIds}::text[])
+            AND "skill_id" = ANY(${skillIds}::text[])
+            AND "sampled_at" > (${from}::timestamptz AT TIME ZONE 'UTC')
+          ORDER BY "member_id", "skill_id", "sampled_at" ASC
+        `,
+        this.prisma.memberSkill.findMany({
+          where: {
+            memberId: { in: memberIds },
+            skillId: { in: skillIds },
+          },
+          select: { memberId: true, skillId: true, xp: true },
+        }),
+      ]);
+
+      // Applied in priority order: a sample just inside the window beats the
+      // member's current (possibly since-changed) skill row.
       for (const row of inWindow) {
         const key = pairKey(row.memberId, row.skillId);
         if (!baselines.has(key)) baselines.set(key, BigInt(row.xp));
       }
-    }
-
-    // Still nothing means no history at all for that pair, so the member has
-    // not gained anything we can see and their current XP is the baseline.
-    if (memberIds.length * skillIds.length - baselines.size > 0) {
-      const current = await this.prisma.memberSkill.findMany({
-        where: {
-          memberId: { in: memberIds },
-          skillId: { in: skillIds },
-        },
-        select: { memberId: true, skillId: true, xp: true },
-      });
       for (const row of current) {
         const key = pairKey(row.memberId, row.skillId);
         if (!baselines.has(key)) baselines.set(key, row.xp);
@@ -400,14 +403,6 @@ function xpAtOrBefore(series: SamplePoint[], time: number): number {
   return xp;
 }
 
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  }
-  return h;
-}
-
 /** Standalone helper used by Nest service and prisma/seed.ts */
 export function buildSyntheticXpSamples(
   memberId: string,
@@ -429,7 +424,7 @@ export function buildSyntheticXpSamples(
       continue;
     }
 
-    const hash = hashString(`${memberId}:${skill.skillId}`);
+    const hash = deterministicHash(`${memberId}:${skill.skillId}`);
     const startRatio = 0.35 + (hash % 36) / 100;
     const startXp = Math.floor(endXp * startRatio);
     const totalGain = endXp - startXp;

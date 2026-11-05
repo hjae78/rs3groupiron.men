@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { AchievementKind, type Prisma } from '@prisma/client';
+import { deterministicHash } from '../common/hash';
+import { spreadTimestamp } from '../common/spread-timestamp';
 import {
   MAX_SKILL_XP,
   SKILLS,
@@ -324,12 +326,6 @@ const ACHIEVEMENT_SEED_DAYS = 60;
 const ACHIEVEMENT_SEED_MIN = 25;
 const ACHIEVEMENT_SEED_SPREAD = 11; // 25–35 entries
 
-function seedHash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return h;
-}
-
 const SEED_QUESTS = [
   'The World Wakes',
   'Nomad’s Elegy',
@@ -391,19 +387,19 @@ export function buildSyntheticAchievements(
 ): Prisma.AchievementCreateManyInput[] {
   if (!memberNames.length) return [];
 
-  const base = seedHash(groupName);
+  const base = deterministicHash(groupName);
   const count = ACHIEVEMENT_SEED_MIN + (base % ACHIEVEMENT_SEED_SPREAD);
   const windowMs = ACHIEVEMENT_SEED_DAYS * 24 * 60 * 60 * 1000;
   const rows: Prisma.AchievementCreateManyInput[] = [];
 
   for (let i = 0; i < count; i++) {
-    const h = seedHash(`ach${i}${groupName}`);
+    const h = deterministicHash(`ach${i}${groupName}`);
     const memberName =
-      memberNames[seedHash(`am${i}${groupName}`) % memberNames.length];
+      memberNames[deterministicHash(`am${i}${groupName}`) % memberNames.length];
 
     // ~45% level, ~25% drop (only when the group actually owns items),
     // ~15% quest, ~15% diary.
-    const roll = seedHash(`ar${i}${groupName}`) % 100;
+    const roll = deterministicHash(`ar${i}${groupName}`) % 100;
     let kind: AchievementKind;
     if (roll < 45) kind = AchievementKind.level;
     else if (roll < 70 && itemIds.length) kind = AchievementKind.drop;
@@ -416,13 +412,13 @@ export function buildSyntheticAchievements(
     let itemId: number | null = null;
 
     if (kind === AchievementKind.level) {
-      const def = SKILLS[seedHash(`as${i}${groupName}`) % SKILLS.length];
+      const def = SKILLS[deterministicHash(`as${i}${groupName}`) % SKILLS.length];
       const milestone = def.maxLevel >= 120 && h % 3 === 0 ? 120 : 99;
       title = `${milestone} ${def.name}`;
       detail = `Reached level ${milestone}`;
       skillId = def.id;
     } else if (kind === AchievementKind.drop) {
-      itemId = itemIds[seedHash(`ai${i}${groupName}`) % itemIds.length];
+      itemId = itemIds[deterministicHash(`ai${i}${groupName}`) % itemIds.length];
       title = SEED_DROP_NAMES[h % SEED_DROP_NAMES.length];
       detail = `Item ${itemId}`;
     } else if (kind === AchievementKind.quest) {
@@ -434,14 +430,7 @@ export function buildSyntheticAchievements(
     }
 
     // Evenly spread across the window, jittered within each slice.
-    const slice = 1 / count;
-    const agoFraction = Math.min(
-      1,
-      (count - 1 - i) * slice + ((h % 1000) / 1000) * slice,
-    );
-    const achievedAt = new Date(
-      endAt.getTime() - Math.floor(agoFraction * windowMs),
-    );
+    const achievedAt = spreadTimestamp(i, count, windowMs, endAt, h);
 
     rows.push({
       groupId,
