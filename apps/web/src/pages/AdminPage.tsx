@@ -1,56 +1,27 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AdminAuthError,
   cancelAdminGroupDeletion,
   deleteAdminGroup,
-  fetchAdminGroups,
   fetchAdminOverview,
   pingAdmin,
   scheduleAdminGroupDeletion,
-  type AdminDailyPoint,
   type AdminGroup,
-  type AdminGroupFilter,
-  type AdminGroupSort,
-  type AdminGroupsPage,
   type AdminOverview,
-  type AdminSortDir,
 } from '../api/adminClient';
+import { AdminDailyChart } from './AdminDailyChart';
+import { AdminGroupsTable } from './AdminGroupsTable';
+import { AdminOverviewTiles } from './AdminOverviewTiles';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { clearAdminToken, readAdminToken, writeAdminToken } from '../lib/adminSession';
 import { DELETION_GRACE_DAYS } from '../lib/constants';
 import { errorMessage } from '../lib/errors';
+import { formatDate, formatDateTime } from '../lib/format';
+import { useAdminGroupsTable } from '../hooks/useAdminGroupsTable';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
-import { useLatestRequest } from '../hooks/useLatestRequest';
 import { useResolvedTheme, useUiPrefs } from '../hooks/useUiPrefs';
 import '../styles/admin.css';
-
-const CHART_RANGES = [14, 30, 90] as const;
-const PAGE_SIZE = 25;
-const SEARCH_DEBOUNCE_MS = 250;
-
-const formatNumber = (value: number) => value.toLocaleString('en-GB');
-
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? '—'
-    : at.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function formatDateTime(iso: string | null) {
-  if (!iso) return '—';
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? '—' : at.toLocaleString('en-GB');
-}
-
-function shortDay(day: string) {
-  const at = new Date(`${day}T00:00:00Z`);
-  return Number.isNaN(at.getTime())
-    ? day
-    : at.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' });
-}
 
 export function AdminPage() {
   useDocumentTitle('Admin', { noindex: true });
@@ -149,23 +120,12 @@ function Dashboard({ token, onSignOut }: DashboardProps) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [overviewError, setOverviewError] = useState<string | null>(null);
 
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<AdminGroupFilter>('all');
-  const [sort, setSort] = useState<AdminGroupSort>('created_at');
-  const [dir, setDir] = useState<AdminSortDir>('desc');
-  const [page, setPage] = useState(1);
-  const [table, setTable] = useState<AdminGroupsPage | null>(null);
-  const [tableError, setTableError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<AdminGroup | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const tableRequest = useLatestRequest();
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
   const onFailure = useCallback(
@@ -180,13 +140,7 @@ function Dashboard({ token, onSignOut }: DashboardProps) {
     [onSignOut],
   );
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setQuery(search.trim());
-      setPage(1);
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [search]);
+  const groupsTable = useAdminGroupsTable({ token, reloadKey, onFailure });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -202,62 +156,43 @@ function Dashboard({ token, onSignOut }: DashboardProps) {
     return () => controller.abort();
   }, [token, days, reloadKey, onFailure]);
 
-  useEffect(() => {
-    let live = true;
-    setLoading(true);
-    void (async () => {
-      const settled = await tableRequest((signal) =>
-        fetchAdminGroups(token, {
-          q: query,
-          page,
-          pageSize: PAGE_SIZE,
-          sort,
-          dir,
-          filter,
-          signal,
-        }),
-      );
-      if (!settled || !live) return;
-      setLoading(false);
-      if (settled.ok) {
-        setTable(settled.value);
-        setTableError(null);
-      } else {
-        onFailure(settled.error, 'Could not load groups', setTableError);
+  const runAction = useCallback(
+    async (group: AdminGroup, action: () => Promise<unknown>, done: string) => {
+      setPendingId(group.id);
+      setActionError(null);
+      setNotice(null);
+      try {
+        await action();
+        setNotice(done);
+        reload();
+      } catch (err) {
+        onFailure(err, 'That action failed', setActionError);
+      } finally {
+        setPendingId(null);
       }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [token, query, page, sort, dir, filter, reloadKey, tableRequest, onFailure]);
+    },
+    [onFailure, reload],
+  );
 
-  async function runAction(group: AdminGroup, action: () => Promise<unknown>, done: string) {
-    setPendingId(group.id);
-    setActionError(null);
-    setNotice(null);
-    try {
-      await action();
-      setNotice(done);
-      reload();
-    } catch (err) {
-      onFailure(err, 'That action failed', setActionError);
-    } finally {
-      setPendingId(null);
-    }
-  }
+  const onSchedule = useCallback(
+    (group: AdminGroup) =>
+      void runAction(
+        group,
+        () => scheduleAdminGroupDeletion(token, group.id),
+        `“${group.name}” is scheduled for erasure in ${DELETION_GRACE_DAYS} days.`,
+      ),
+    [token, runAction],
+  );
 
-  function onSort(next: AdminGroupSort) {
-    if (next === sort) {
-      setDir((current) => (current === 'desc' ? 'asc' : 'desc'));
-    } else {
-      setSort(next);
-      setDir(next === 'name' ? 'asc' : 'desc');
-    }
-    setPage(1);
-  }
-
-  const total = table?.total ?? 0;
-  const pages = table?.pages ?? 1;
+  const onCancel = useCallback(
+    (group: AdminGroup) =>
+      void runAction(
+        group,
+        () => cancelAdminGroupDeletion(token, group.id),
+        `Erasure of “${group.name}” called off.`,
+      ),
+    [token, runAction],
+  );
 
   return (
     <div className="adm-shell">
@@ -280,202 +215,34 @@ function Dashboard({ token, onSignOut }: DashboardProps) {
 
       {overviewError && <p className="adm-error">{overviewError}</p>}
 
-      <section className="adm-tiles">
-        <Tile label="Total groups" value={overview?.groups_total} />
-        <Tile label="Created today" value={overview?.created_today} sub="UTC day" />
-        <Tile label="Last 7 days" value={overview?.created_7d} />
-        <Tile label="Last 30 days" value={overview?.created_30d} />
-        <Tile
-          label="Public groups"
-          value={overview?.groups_public}
-          sub={overview ? `${formatNumber(overview.groups_private)} private` : undefined}
-        />
-        <Tile label="Members" value={overview?.members_total} />
-        <Tile
-          label="Pending deletion"
-          value={overview?.pending_deletion}
-          sub={`${DELETION_GRACE_DAYS}-day grace`}
-        />
-      </section>
+      <AdminOverviewTiles overview={overview} />
 
-      <section className="adm-panel">
-        <div className="adm-panel-head">
-          <h2>Groups created per day</h2>
-          <div className="adm-segs" role="group" aria-label="Chart range">
-            {CHART_RANGES.map((range) => (
-              <button
-                key={range}
-                type="button"
-                className="adm-seg"
-                aria-pressed={days === range}
-                onClick={() => setDays(range)}
-              >
-                {range}d
-              </button>
-            ))}
-          </div>
-        </div>
-        <DailyChart daily={overview?.daily ?? []} />
-      </section>
+      <AdminDailyChart daily={overview?.daily ?? []} days={days} onDaysChange={setDays} />
 
-      <section className="adm-panel">
-        <div className="adm-panel-head">
-          <h2>Groups</h2>
-          <span className="adm-stamp">{formatNumber(total)} matching</span>
-        </div>
-
-        <div className="adm-controls">
-          <div className="adm-search">
-            <input
-              type="search"
-              value={search}
-              placeholder="Search by group name"
-              aria-label="Search by group name"
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="adm-segs" role="group" aria-label="Filter groups">
-            <FilterButton current={filter} value="all" label="All" onPick={setFilter} onPage={setPage} />
-            <FilterButton
-              current={filter}
-              value="public"
-              label="Public"
-              onPick={setFilter}
-              onPage={setPage}
-            />
-            <FilterButton
-              current={filter}
-              value="private"
-              label="Private"
-              onPick={setFilter}
-              onPage={setPage}
-            />
-            <FilterButton
-              current={filter}
-              value="pending_deletion"
-              label="Pending deletion"
-              onPick={setFilter}
-              onPage={setPage}
-            />
-          </div>
-        </div>
-
-        {actionError && <p className="adm-error">{actionError}</p>}
-        {notice && <p className="adm-ok">{notice}</p>}
-        {tableError && <p className="adm-error">{tableError}</p>}
-
-        <div className="adm-table-wrap">
-          <table className="adm-table">
-            <thead>
-              <tr>
-                <SortHeader label="Group" value="name" sort={sort} dir={dir} onSort={onSort} />
-                <th>Visibility</th>
-                <th>Mode</th>
-                <SortHeader
-                  label="Members"
-                  value="members"
-                  sort={sort}
-                  dir={dir}
-                  onSort={onSort}
-                  numeric
-                />
-                <SortHeader
-                  label="Views"
-                  value="views"
-                  sort={sort}
-                  dir={dir}
-                  onSort={onSort}
-                  numeric
-                />
-                <SortHeader label="Created" value="created_at" sort={sort} dir={dir} onSort={onSort} />
-                <th>Last activity</th>
-                <th>Deletion</th>
-                <th aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody>
-              {table?.groups.map((group) => (
-                <GroupRow
-                  key={group.id}
-                  group={group}
-                  busy={pendingId === group.id}
-                  onSchedule={() =>
-                    void runAction(
-                      group,
-                      () => scheduleAdminGroupDeletion(token, group.id),
-                      `“${group.name}” is scheduled for erasure in ${DELETION_GRACE_DAYS} days.`,
-                    )
-                  }
-                  onCancel={() =>
-                    void runAction(
-                      group,
-                      () => cancelAdminGroupDeletion(token, group.id),
-                      `Erasure of “${group.name}” called off.`,
-                    )
-                  }
-                  onDelete={() => setConfirming(group)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {!loading && table?.groups.length === 0 && (
-          <p className="adm-empty">
-            {query ? `No group matches “${query}”.` : 'No groups match this filter.'}
-          </p>
-        )}
-        {loading && !table && <p className="adm-empty">Loading groups…</p>}
-
-        <div className="adm-foot">
-          <span className="adm-stamp">
-            {total > 0
-              ? `Showing ${formatNumber((page - 1) * PAGE_SIZE + 1)}–${formatNumber(
-                  Math.min(page * PAGE_SIZE, total),
-                )} of ${formatNumber(total)}`
-              : 'Nothing to show'}
-          </span>
-          <div className="adm-pager">
-            <button
-              type="button"
-              className="adm-btn adm-btn--sm"
-              disabled={page <= 1}
-              onClick={() => setPage(1)}
-            >
-              First
-            </button>
-            <button
-              type="button"
-              className="adm-btn adm-btn--sm"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-            >
-              Prev
-            </button>
-            <span>
-              Page {formatNumber(page)} of {formatNumber(pages)}
-            </span>
-            <button
-              type="button"
-              className="adm-btn adm-btn--sm"
-              disabled={page >= pages}
-              onClick={() => setPage((current) => Math.min(pages, current + 1))}
-            >
-              Next
-            </button>
-            <button
-              type="button"
-              className="adm-btn adm-btn--sm"
-              disabled={page >= pages}
-              onClick={() => setPage(pages)}
-            >
-              Last
-            </button>
-          </div>
-        </div>
-      </section>
+      <AdminGroupsTable
+        query={groupsTable.query}
+        search={groupsTable.search}
+        onSearchChange={groupsTable.setSearch}
+        filter={groupsTable.filter}
+        onFilterChange={groupsTable.onFilterChange}
+        sort={groupsTable.sort}
+        dir={groupsTable.dir}
+        onSort={groupsTable.onSort}
+        table={groupsTable.table}
+        tableError={groupsTable.tableError}
+        loading={groupsTable.loading}
+        actionError={actionError}
+        notice={notice}
+        page={groupsTable.page}
+        pages={groupsTable.pages}
+        total={groupsTable.total}
+        pageSize={groupsTable.pageSize}
+        onPageChange={groupsTable.setPage}
+        pendingId={pendingId}
+        onSchedule={onSchedule}
+        onCancel={onCancel}
+        onDeleteRequest={setConfirming}
+      />
 
       {confirming && (
         <DeleteDialog
@@ -503,192 +270,6 @@ function Dashboard({ token, onSignOut }: DashboardProps) {
         />
       )}
     </div>
-  );
-}
-
-function FilterButton({
-  current,
-  value,
-  label,
-  onPick,
-  onPage,
-}: {
-  current: AdminGroupFilter;
-  value: AdminGroupFilter;
-  label: string;
-  onPick: (value: AdminGroupFilter) => void;
-  onPage: (page: number) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="adm-seg"
-      aria-pressed={current === value}
-      onClick={() => {
-        onPick(value);
-        onPage(1);
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function Tile({ label, value, sub }: { label: string; value?: number; sub?: string }) {
-  return (
-    <div className="adm-tile">
-      <span className="adm-tile-label">{label}</span>
-      <span className="adm-tile-value">{value == null ? '—' : formatNumber(value)}</span>
-      {sub && <span className="adm-tile-sub">{sub}</span>}
-    </div>
-  );
-}
-
-function DailyChart({ daily }: { daily: AdminDailyPoint[] }) {
-  const peak = useMemo(() => Math.max(1, ...daily.map((point) => point.groups)), [daily]);
-  const made = useMemo(() => daily.reduce((sum, point) => sum + point.groups, 0), [daily]);
-
-  if (daily.length === 0) {
-    return <p className="adm-empty">No data yet.</p>;
-  }
-
-  const first = daily[0]!;
-  const last = daily[daily.length - 1]!;
-
-  return (
-    <>
-      <div
-        className="adm-chart"
-        role="img"
-        aria-label={`${formatNumber(made)} groups created between ${first.day} and ${last.day}, peaking at ${formatNumber(peak)} in a day`}
-      >
-        {daily.map((point) => (
-          <div
-            key={point.day}
-            className="adm-chart-col"
-            title={`${shortDay(point.day)} · ${formatNumber(point.groups)} ${
-              point.groups === 1 ? 'group' : 'groups'
-            }`}
-          >
-            <div
-              className={point.groups === 0 ? 'adm-chart-bar adm-chart-bar--zero' : 'adm-chart-bar'}
-              style={{ height: `${Math.max(2, (point.groups / peak) * 100)}%` }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="adm-chart-axis">
-        <span>{shortDay(first.day)}</span>
-        <span>
-          {formatNumber(made)} total · peak {formatNumber(peak)}/day
-        </span>
-        <span>{shortDay(last.day)}</span>
-      </div>
-    </>
-  );
-}
-
-function SortHeader({
-  label,
-  value,
-  sort,
-  dir,
-  onSort,
-  numeric,
-}: {
-  label: string;
-  value: AdminGroupSort;
-  sort: AdminGroupSort;
-  dir: AdminSortDir;
-  onSort: (value: AdminGroupSort) => void;
-  numeric?: boolean;
-}) {
-  const active = sort === value;
-  return (
-    <th
-      className={numeric ? 'adm-num' : undefined}
-      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : undefined}
-    >
-      <button type="button" className="adm-sort" onClick={() => onSort(value)}>
-        {label}
-        <span aria-hidden>{active ? (dir === 'asc' ? '▲' : '▼') : '·'}</span>
-      </button>
-    </th>
-  );
-}
-
-type GroupRowProps = {
-  group: AdminGroup;
-  busy: boolean;
-  onSchedule: () => void;
-  onCancel: () => void;
-  onDelete: () => void;
-};
-
-function GroupRow({ group, busy, onSchedule, onCancel, onDelete }: GroupRowProps) {
-  const isPublic = group.visibility === 'public';
-  return (
-    <tr>
-      <td>
-        <span className="adm-name">
-          <Link to={`/g/${encodeURIComponent(group.name)}`} target="_blank" rel="noreferrer">
-            {group.name}
-          </Link>
-          <span className="adm-name-sub">
-            {group.member_names.join(', ') || 'no members yet'}
-          </span>
-        </span>
-      </td>
-      <td>
-        <span className={isPublic ? 'adm-pill adm-pill--public' : 'adm-pill'}>
-          {isPublic ? 'Public' : 'Private'}
-        </span>
-      </td>
-      <td>{group.mode === 'competitive' ? 'Competitive' : 'Normal'}</td>
-      <td className="adm-num">
-        {group.member_count}/{group.member_slots}
-      </td>
-      <td className="adm-num">{formatNumber(group.views_total)}</td>
-      <td>{formatDate(group.created_at)}</td>
-      <td>{formatDate(group.last_activity)}</td>
-      <td>
-        {group.deletion.pending ? (
-          <span className="adm-pill adm-pill--pending" title={formatDateTime(group.deletion.delete_after)}>
-            {formatDate(group.deletion.delete_after)}
-          </span>
-        ) : (
-          '—'
-        )}
-      </td>
-      <td>
-        <span className="adm-row-actions">
-          {group.deletion.pending ? (
-            <button type="button" className="adm-btn adm-btn--sm" disabled={busy} onClick={onCancel}>
-              Keep
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="adm-btn adm-btn--sm"
-              disabled={busy}
-              onClick={onSchedule}
-              title={`Erase in ${DELETION_GRACE_DAYS} days, cancellable`}
-            >
-              Schedule
-            </button>
-          )}
-          <button
-            type="button"
-            className="adm-btn adm-btn--sm adm-btn--danger"
-            disabled={busy}
-            onClick={onDelete}
-            title="Erases everything immediately — no grace period, no undo"
-          >
-            Delete
-          </button>
-        </span>
-      </td>
-    </tr>
   );
 }
 

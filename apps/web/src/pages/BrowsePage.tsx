@@ -11,14 +11,13 @@ import { MarketingLayout, useFormTheme } from '../components/MarketingLayout';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { MAX_GROUP_NAME, PAGE_SEO, SITE_NAME } from '../lib/constants';
 import { errorMessage } from '../lib/errors';
+import { formatNumber } from '../lib/format';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useLatestRequest } from '../hooks/useLatestRequest';
 import { useUrlText } from '../hooks/useUrlState';
 import '../styles/discover.css';
 
 const BOARD_LIMIT = 8;
-
-const formatNumber = (value: number) => value.toLocaleString('en-GB');
 
 const groupUrl = (name: string) => `/g/${encodeURIComponent(name)}`;
 
