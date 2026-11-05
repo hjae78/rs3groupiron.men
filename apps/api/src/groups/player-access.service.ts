@@ -8,6 +8,9 @@ import {
 } from './player-access';
 import { playerDeletionStatus } from './player-deletion';
 
+/** How long a credential's lastUsedAt may lag before validate() refreshes it. */
+const LAST_USED_REFRESH_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class PlayerAccessService {
   constructor(private readonly prisma: PrismaService) {}
@@ -30,22 +33,20 @@ export class PlayerAccessService {
     });
     if (!row || !isAccessCredentialUsable(row, new Date())) return null;
 
-    await this.prisma.playerAccessCredential.update({
-      where: { id: row.id },
-      data: { lastUsedAt: new Date() },
-    });
+    const now = new Date();
+    if (!row.lastUsedAt || now.getTime() - row.lastUsedAt.getTime() >= LAST_USED_REFRESH_MS) {
+      await this.prisma.playerAccessCredential.update({
+        where: { id: row.id },
+        data: { lastUsedAt: now },
+      });
+    }
     return { playerId: row.playerId, createdAt: row.createdAt };
   }
 
   async revoke(token: string): Promise<void> {
     const tokenHash = hashAccessToken(token);
-    const row = await this.prisma.playerAccessCredential.findFirst({
-      where: { tokenHash },
-    });
-    if (!row || row.revokedAt != null) return;
-
-    await this.prisma.playerAccessCredential.update({
-      where: { id: row.id },
+    await this.prisma.playerAccessCredential.updateMany({
+      where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
   }

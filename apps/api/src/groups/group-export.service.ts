@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Writable } from 'node:stream';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2Service } from '../uploads/r2.service';
+import { paginateAll } from '../common/paginate';
 import { ZipWriter } from '../common/zip';
 import { deletionStatus } from './group-deletion';
 import { groupNameKey, sharesScope } from './group-access.service';
@@ -285,28 +286,24 @@ export class GroupExportService {
       { at },
     );
 
-    counts.bank_ledger = await this.writeLedger(
-      zip,
-      state.groupId,
-      at,
-      prefix,
-      options.filter,
-    );
-    const feed = await this.writeFeed(
-      zip,
-      state.groupId,
-      at,
-      prefix,
-      options.filter,
-    );
+    // The three reads below touch independent tables, so they're built
+    // concurrently; the zip writes that follow stay sequential, because
+    // ZipWriter is not safe for concurrent entries on one archive.
+    const [ledger, feed, xpSamples] = await Promise.all([
+      this.buildLedger(state.groupId, options.filter),
+      this.buildFeed(state.groupId, prefix, options.filter),
+      this.buildXpSamples(state.groupId, options.filter),
+    ]);
+
+    counts.bank_ledger = ledger.rows;
+    await zip.addText(`${prefix}bank-ledger.ndjson`, ledger.text, { at });
+
     counts.achievement_feed = feed.rows;
-    counts.xp_samples = await this.writeXpSamples(
-      zip,
-      state.groupId,
-      at,
-      prefix,
-      options.filter,
-    );
+    await zip.addText(`${prefix}achievement-feed.ndjson`, feed.text, { at });
+
+    counts.xp_samples = xpSamples.rows;
+    await zip.addText(`${prefix}xp-samples.ndjson`, xpSamples.text, { at });
+
     counts.screenshots = await this.writeScreenshots(
       zip,
       feed.images,
@@ -322,30 +319,24 @@ export class GroupExportService {
     return counts;
   }
 
-  private async writeLedger(
-    zip: ZipWriter,
-    groupId: string,
-    at: Date,
-    prefix: string,
-    filter?: MemberFilter,
-  ) {
+  private async buildLedger(groupId: string, filter?: MemberFilter) {
     const lines: string[] = [];
-    let cursor: string | undefined;
-    let rows = 0;
-    for (;;) {
-      const page = await this.prisma.sharedBankEntry.findMany({
-        where: {
-          groupId,
-          ...(filter
-            ? { memberName: { in: filter.usernames, mode: 'insensitive' } }
-            : {}),
-        },
-        orderBy: { id: 'asc' },
-        take: PAGE,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
-      if (!page.length) break;
-      for (const row of page) {
+    const rows = await paginateAll(
+      PAGE,
+      MAX_SERIES_ROWS,
+      (cursor) =>
+        this.prisma.sharedBankEntry.findMany({
+          where: {
+            groupId,
+            ...(filter
+              ? { memberName: { in: filter.usernames, mode: 'insensitive' } }
+              : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: PAGE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        }),
+      (row) => {
         lines.push(
           JSON.stringify({
             at: row.createdAt.toISOString(),
@@ -354,42 +345,36 @@ export class GroupExportService {
             delta: row.delta,
           }),
         );
-      }
-      rows += page.length;
-      cursor = page[page.length - 1].id;
-      if (page.length < PAGE || rows >= MAX_SERIES_ROWS) break;
-    }
-    await zip.addText(`${prefix}bank-ledger.ndjson`, join(lines), { at });
-    return rows;
+      },
+    );
+    return { rows, text: join(lines) };
   }
 
-  private async writeFeed(
-    zip: ZipWriter,
+  private async buildFeed(
     groupId: string,
-    at: Date,
     prefix: string,
     filter?: MemberFilter,
   ) {
     const lines: string[] = [];
     const images: Array<{ url: string; file: string }> = [];
     const seen = new Set<string>();
-    let cursor: string | undefined;
-    let rows = 0;
 
-    for (;;) {
-      const page = await this.prisma.achievement.findMany({
-        where: {
-          groupId,
-          ...(filter
-            ? { memberName: { in: filter.usernames, mode: 'insensitive' } }
-            : {}),
-        },
-        orderBy: { id: 'asc' },
-        take: PAGE,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
-      if (!page.length) break;
-      for (const row of page) {
+    const rows = await paginateAll(
+      PAGE,
+      MAX_SERIES_ROWS,
+      (cursor) =>
+        this.prisma.achievement.findMany({
+          where: {
+            groupId,
+            ...(filter
+              ? { memberName: { in: filter.usernames, mode: 'insensitive' } }
+              : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: PAGE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        }),
+      (row) => {
         let file: string | null = null;
         if (row.imageUrl) {
           const path = screenshotPath(row.imageUrl, row.kind, seen);
@@ -413,23 +398,13 @@ export class GroupExportService {
             image_file: file,
           }),
         );
-      }
-      rows += page.length;
-      cursor = page[page.length - 1].id;
-      if (page.length < PAGE || rows >= MAX_SERIES_ROWS) break;
-    }
+      },
+    );
 
-    await zip.addText(`${prefix}achievement-feed.ndjson`, join(lines), { at });
-    return { rows, images };
+    return { rows, images, text: join(lines) };
   }
 
-  private async writeXpSamples(
-    zip: ZipWriter,
-    groupId: string,
-    at: Date,
-    prefix: string,
-    filter?: MemberFilter,
-  ) {
+  private async buildXpSamples(groupId: string, filter?: MemberFilter) {
     const members = await this.prisma.member.findMany({
       where: {
         groupId,
@@ -439,22 +414,21 @@ export class GroupExportService {
     });
     const nameById = new Map(members.map((m) => [m.id, m.name]));
     if (!members.length) {
-      await zip.addText(`${prefix}xp-samples.ndjson`, '', { at });
-      return 0;
+      return { rows: 0, text: '' };
     }
 
     const lines: string[] = [];
-    let cursor: string | undefined;
-    let rows = 0;
-    for (;;) {
-      const page = await this.prisma.skillXpSample.findMany({
-        where: { memberId: { in: [...nameById.keys()] } },
-        orderBy: { id: 'asc' },
-        take: PAGE,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
-      if (!page.length) break;
-      for (const row of page) {
+    const rows = await paginateAll(
+      PAGE,
+      MAX_SERIES_ROWS,
+      (cursor) =>
+        this.prisma.skillXpSample.findMany({
+          where: { memberId: { in: [...nameById.keys()] } },
+          orderBy: { id: 'asc' },
+          take: PAGE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        }),
+      (row) => {
         lines.push(
           JSON.stringify({
             member_name: nameById.get(row.memberId) ?? null,
@@ -463,14 +437,10 @@ export class GroupExportService {
             sampled_at: row.sampledAt.toISOString(),
           }),
         );
-      }
-      rows += page.length;
-      cursor = page[page.length - 1].id;
-      if (page.length < PAGE || rows >= MAX_SERIES_ROWS) break;
-    }
+      },
+    );
 
-    await zip.addText(`${prefix}xp-samples.ndjson`, join(lines), { at });
-    return rows;
+    return { rows, text: join(lines) };
   }
 
   private async writeScreenshots(

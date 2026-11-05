@@ -35,6 +35,7 @@ const groupLightSelect = {
   createdAt: true,
   deletionRequestedAt: true,
   deleteAfter: true,
+  dropThreshold: true,
   ...shareSelect,
   members: { select: { id: true, name: true } },
 } satisfies Prisma.GroupSelect;
