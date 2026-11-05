@@ -1,5 +1,6 @@
 import { Controller, Get, Header, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { sendCached } from '../common/http-cache';
 import { ItemNamesService } from './item-names.service';
 
 // main.ts sets a global 'api' prefix, so this must not repeat it.
@@ -48,10 +49,6 @@ export class ItemNamesController {
     response: Response,
     { body, etag }: { body: string; etag: string },
   ) {
-    if (request.headers['if-none-match'] === etag) {
-      response.status(304).set('ETag', etag).end();
-      return;
-    }
-    response.status(200).set('ETag', etag).type('application/json').send(body);
+    sendCached(request, response, etag, (res) => res.type('application/json').send(body));
   }
 }

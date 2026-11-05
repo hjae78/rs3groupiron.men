@@ -1,5 +1,6 @@
 import { Controller, Get, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { sendCached } from '../common/http-cache';
 import { PricesService } from './prices.service';
 
 // main.ts sets a global 'api' prefix, so this must not repeat it.
@@ -23,10 +24,6 @@ export class PricesController {
       'Cache-Control',
       `public, max-age=${fresh}, stale-while-revalidate=43200`,
     );
-    if (request.headers['if-none-match'] === etag) {
-      response.status(304).set('ETag', etag).end();
-      return;
-    }
-    response.status(200).set('ETag', etag).type('application/json').send(body);
+    sendCached(request, response, etag, (res) => res.type('application/json').send(body));
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, normalize } from 'node:path';
+import { etagOf } from '../common/etag';
 
 const ICON_SOURCE = 'https://chisel.weirdgloop.org/gazproj/icons/png';
 const USER_AGENT =
@@ -42,7 +42,7 @@ export class AssetsService {
   private hold(key: string, body: Buffer): Asset {
     const asset = {
       body,
-      etag: `"${createHash('sha1').update(body).digest('hex').slice(0, 16)}"`,
+      etag: etagOf(body),
     };
     this.memory.set(key, asset);
     return asset;

@@ -1,7 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { existsSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { etagOf } from '../common/etag';
 
 type Loaded = {
   body: string;
@@ -58,7 +58,7 @@ export class CatalogueService implements OnModuleInit {
       const updated = typeof body.updated === 'string' ? body.updated : '';
       this.loaded.set(key, {
         body: text,
-        etag: `"${createHash('sha1').update(text).digest('hex').slice(0, 16)}"`,
+        etag: etagOf(text),
         count: Object.keys(entries).length,
         revision,
         updated,

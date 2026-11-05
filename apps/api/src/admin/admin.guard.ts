@@ -8,6 +8,7 @@ import {
 import type { Request } from 'express';
 import type { IncomingHttpHeaders } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { stripBearer } from '../common/bearer-token';
 import { adminToken } from '../config/env';
 
 function firstValue(raw: string | string[] | undefined): string {
@@ -17,8 +18,7 @@ function firstValue(raw: string | string[] | undefined): string {
 export function presentedAdminToken(headers: IncomingHttpHeaders): string {
   const header =
     firstValue(headers['x-admin-token']) || firstValue(headers.authorization);
-  const bearer = /^Bearer\s+(.+)$/i.exec(header);
-  return (bearer ? bearer[1] : header).trim();
+  return stripBearer(header);
 }
 
 export function adminTokenMatches(expected: string, provided: string): boolean {

@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { stripBearer } from '../common/bearer-token';
 import { PlayerAccessService } from './player-access.service';
 
 export type AuthedPlayerRequest = Request & {
@@ -14,9 +15,7 @@ export type AuthedPlayerRequest = Request & {
 };
 
 export function presentedPlayerToken(header: string | undefined): string {
-  const raw = header?.trim() ?? '';
-  const bearer = /^Bearer\s+(.+)$/i.exec(raw);
-  return (bearer ? bearer[1] : raw).trim();
+  return stripBearer(header?.trim() ?? '');
 }
 
 @Injectable()

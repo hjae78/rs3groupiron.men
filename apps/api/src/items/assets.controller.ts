@@ -8,6 +8,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { sendCached } from '../common/http-cache';
 import { AssetsService, type Asset } from './assets.service';
 
 /**
@@ -49,14 +50,6 @@ export class AssetsController {
   }
 
   private send(request: Request, response: Response, asset: Asset) {
-    if (request.headers['if-none-match'] === asset.etag) {
-      response.status(304).set('ETag', asset.etag).end();
-      return;
-    }
-    response
-      .status(200)
-      .set('ETag', asset.etag)
-      .type('image/png')
-      .send(asset.body);
+    sendCached(request, response, asset.etag, (res) => res.type('image/png').send(asset.body));
   }
 }

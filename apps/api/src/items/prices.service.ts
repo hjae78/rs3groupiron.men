@@ -4,9 +4,9 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { etagOf } from '../common/etag';
 
 const DEFAULT_URL = 'https://prices.runescape.wiki/api/v2/rs/latest';
 const DEFAULT_REFRESH_MS = 12 * 60 * 60 * 1000;
@@ -184,7 +184,7 @@ export class PricesService implements OnModuleInit, OnModuleDestroy {
       count: Object.keys(this.prices).length,
       prices: this.prices,
     });
-    this.tag = `"${createHash('sha1').update(this.body).digest('hex').slice(0, 16)}"`;
+    this.tag = etagOf(this.body);
   }
 
   priceFor(itemId: number): number {

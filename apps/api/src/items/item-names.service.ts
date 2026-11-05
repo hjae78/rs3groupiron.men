@@ -1,7 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { existsSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { etagOf } from '../common/etag';
 
 type ItemRecord = {
   name: string;
@@ -139,7 +139,7 @@ export class ItemNamesService implements OnModuleInit {
       count: Object.keys(names).length,
       names,
     });
-    this.tag = `"${createHash('sha1').update(this.body).digest('hex').slice(0, 16)}"`;
+    this.tag = etagOf(this.body);
 
     this.stacksBody = JSON.stringify({
       updated: this.updated,
@@ -151,7 +151,7 @@ export class ItemNamesService implements OnModuleInit {
       base: '/api/sprites/',
       stacks,
     });
-    this.stacksTag = `"${createHash('sha1').update(this.stacksBody).digest('hex').slice(0, 16)}"`;
+    this.stacksTag = etagOf(this.stacksBody);
 
     this.alchBody = JSON.stringify({
       updated: this.updated,
@@ -159,7 +159,7 @@ export class ItemNamesService implements OnModuleInit {
       count: Object.keys(alch).length,
       alch,
     });
-    this.alchTag = `"${createHash('sha1').update(this.alchBody).digest('hex').slice(0, 16)}"`;
+    this.alchTag = etagOf(this.alchBody);
   }
 
   nameOf(itemId: number): string | undefined {
