@@ -30,29 +30,24 @@ import { clearGroupSession, readGroupSession, writeGroupSession } from '../../li
 import type { PlayerView } from '../../lib/items';
 import { panelOpacityToAlpha } from '../../lib/uiPrefs';
 import { POLL_MS_DEFAULT, POLL_MS_MAP } from '../../lib/polling';
-import { questPointsFor } from '../../lib/quests';
 import {
   DEFAULT_CENTER,
-  DEFAULT_MIN_ZOOM,
   DEFAULT_ZOOM,
-  findMapMode,
-  MAP_MODES,
   readMapMode,
   Rs3Map,
   writeMapMode,
   type MapMode,
 } from '../Map';
-import { ActionsMenu } from './ActionsMenu';
 import { AchievementsPanel } from './AchievementsPanel';
 import { AppHeader, SideRail, type ChromeActions, type ChromeMenu, type NavItem } from './AppChrome';
 import { DropsPanel } from './DropsPanel';
-import { FullscreenIcon, LayersIcon, MinusIcon, PlusIcon } from './icons';
 import { ItemsPanel } from './ItemsPanel';
 import { LedgerPanel } from './LedgerPanel';
+import { MapChips } from './MapChips';
+import { MapToolbar } from './MapToolbar';
+import { MembersSidebar } from './MembersSidebar';
 import type { MemberBadge } from './memberOptions';
 import { PanelStatus } from './PanelChrome';
-import { PlayerCard } from './PlayerCard';
-import { PlayerCardSkeleton } from './PlayerCardSkeleton';
 import { QuestsPanel } from './QuestsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { SetupModal } from './SetupModal';
@@ -63,7 +58,6 @@ import './ShellLayout.css';
 const GraphsPanel = lazy(() => import('./GraphsPanel').then((m) => ({ default: m.GraphsPanel })));
 
 const DEFAULT_MEMBER_SLOTS = 5;
-const MAX_ZOOM = 5;
 
 export type ShellTab =
   | 'items'
@@ -385,66 +379,17 @@ export function GroupMapShell({
       <div className="gms-row">
         {isRail && <SideRail {...chromeProps} />}
 
-        <aside className="gms-players" aria-label="Group members">
-          <div className="gms-members-bar">
-            <span className="gms-micro gms-members-label">Members · {players.length}</span>
-            <button
-              type="button"
-              className="gms-members-toggle"
-              aria-expanded={!membersCollapsed}
-              title={membersCollapsed ? 'Expand members' : 'Collapse members'}
-              aria-label={membersCollapsed ? 'Expand members' : 'Collapse members'}
-              onClick={() => setMembersCollapsed((open) => !open)}
-            >
-              {membersCollapsed ? '›' : '‹'}
-            </button>
-          </div>
-          {error && <p className="gms-side-status gms-side-status--error">{error}</p>}
-          {!error &&
-            loading &&
-            players.length === 0 &&
-            Array.from({ length: memberSlots }, (_, i) => <PlayerCardSkeleton key={i} />)}
-          {!error && !loading && players.length === 0 && (
-            <p className="gms-side-status">No members yet</p>
-          )}
-          {players.map((player) =>
-            membersCollapsed ? (
-              <button
-                key={player.name}
-                type="button"
-                className={
-                  player.online
-                    ? 'gms-members-avatar gms-members-avatar--online'
-                    : 'gms-members-avatar'
-                }
-                style={{ '--member': player.avatarColor } as CSSProperties}
-                title={`${player.displayName} — ${player.online ? 'Online' : 'Offline'}`}
-                aria-label={`Expand members (${player.displayName}, ${
-                  player.online ? 'online' : 'offline'
-                })`}
-                onClick={() => setMembersCollapsed(false)}
-              >
-                <span className="gms-members-avatar-face">
-                  {player.avatarUrl ? (
-                    <img src={player.avatarUrl} alt="" width={48} height={48} />
-                  ) : (
-                    player.displayName.charAt(0).toUpperCase()
-                  )}
-                </span>
-                <span className="gms-members-avatar-dot" aria-hidden />
-              </button>
-            ) : (
-              <PlayerCard
-                key={player.name}
-                player={player}
-                xpDrop={xpDropsByPlayer[player.name] ?? null}
-                onXpDropDone={dismissXpDrop}
-                questPoints={questPointsFor(questsByMember[player.name])}
-                quests={questsByMember[player.name]}
-              />
-            ),
-          )}
-        </aside>
+        <MembersSidebar
+          players={players}
+          error={error}
+          loading={loading}
+          memberSlots={memberSlots}
+          membersCollapsed={membersCollapsed}
+          onToggleCollapsed={() => setMembersCollapsed((open) => !open)}
+          xpDropsByPlayer={xpDropsByPlayer}
+          dismissXpDrop={dismissXpDrop}
+          questsByMember={questsByMember}
+        />
 
         <main className={isMap ? 'gms-main gms-main--map' : 'gms-main'}>
           {isInline && <AppHeader variant="inline" {...chromeProps} />}
@@ -537,53 +482,13 @@ export function GroupMapShell({
       </div>
 
       {isMap && (
-        <div className="gms-maptools">
-          <ActionsMenu
-            label={findMapMode(mapMode).label}
-            title="Map style"
-            icon={<LayersIcon />}
-            placement="top"
-            items={MAP_MODES.map((style) => ({
-              key: style.id,
-              label: style.label,
-              hint: style.hint,
-              active: style.id === mapMode,
-              onSelect: () => selectMapMode(style.id),
-            }))}
-          />
-          <button
-            type="button"
-            className="gms-action gms-action--icon"
-            title="Zoom out"
-            aria-label="Zoom out"
-            disabled={zoom <= DEFAULT_MIN_ZOOM}
-            onClick={() => setZoom((z) => Math.max(DEFAULT_MIN_ZOOM, z - 1))}
-          >
-            <MinusIcon />
-          </button>
-          <button
-            type="button"
-            className="gms-action gms-action--icon"
-            title="Zoom in"
-            aria-label="Zoom in"
-            disabled={zoom >= MAX_ZOOM}
-            onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 1))}
-          >
-            <PlusIcon />
-          </button>
-          {fullscreen.supported && (
-            <button
-              type="button"
-              className="gms-action gms-action--icon"
-              aria-pressed={fullscreen.active}
-              title={fullscreen.active ? 'Exit full screen' : 'Full screen'}
-              aria-label={fullscreen.active ? 'Exit full screen' : 'Full screen'}
-              onClick={fullscreen.toggle}
-            >
-              <FullscreenIcon exit={fullscreen.active} />
-            </button>
-          )}
-        </div>
+        <MapToolbar
+          mapMode={mapMode}
+          onSelectMapMode={selectMapMode}
+          zoom={zoom}
+          onZoomChange={setZoom}
+          fullscreen={fullscreen}
+        />
       )}
 
       <SetupModal
@@ -598,59 +503,6 @@ export function GroupMapShell({
           writeGroupSession({ name, token });
         }}
       />
-    </div>
-  );
-}
-
-function MapChips({
-  players,
-  activeName,
-  attached,
-  onSelect,
-}: {
-  players: PlayerView[];
-  activeName: string | null;
-  attached: boolean;
-  onSelect: (player: PlayerView) => void;
-}) {
-  if (players.length === 0) return null;
-  return (
-    <div className={attached ? 'gms-map-chips gms-map-chips--attached' : 'gms-map-chips'}>
-      <nav className="gms-map-chips-bar" aria-label="Player locations">
-        {players.map((player) => {
-          const hasLocation = player.coordinates.length >= 2;
-          const active = activeName === player.name;
-          return (
-            <button
-              key={player.name}
-              type="button"
-              className={active ? 'gms-map-chip gms-map-chip--active' : 'gms-map-chip'}
-              title={
-                player.inLobby
-                  ? `${player.name} is in the lobby`
-                  : !hasLocation
-                    ? 'Location unknown'
-                    : player.online
-                      ? `Jump to ${player.name}`
-                      : `Jump to last location (${player.name} offline)`
-              }
-              disabled={!hasLocation}
-              onClick={() => onSelect(player)}
-            >
-              <span
-                className="gms-map-chip-dot"
-                style={{ background: player.online ? player.avatarColor : 'var(--dim)' }}
-                aria-hidden
-              />
-              <span className="gms-map-chip-name">{player.displayName}</span>
-              {!player.online && <span className="gms-map-chip-tag">offline</span>}
-              {player.online && player.inLobby && (
-                <span className="gms-map-chip-tag">lobby</span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
     </div>
   );
 }
