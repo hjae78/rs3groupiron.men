@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { useMemberColor } from '../../hooks/useMemberColor';
 import { useUrlState, useUrlText } from '../../hooks/useUrlState';
 import {
   MAX_QUEST_POINTS,
@@ -13,11 +14,13 @@ import {
   type QuestDef,
   type QuestState,
 } from '../../lib/quests';
-import { colorForName } from '../../lib/items';
 import type { MemberBadge } from './memberOptions';
-import { PanelStatus } from './PanelChrome';
+import { LoadMoreButton, PanelStatus } from './PanelChrome';
 import { Segmented } from './Segmented';
 import { WikiIcon } from './icons';
+
+/** Rows rendered at once; the full quest list stays off the DOM until asked for. */
+const PAGE_SIZE = 150;
 
 type Progress = 'all' | 'finished' | 'started' | 'not_started';
 
@@ -85,10 +88,7 @@ export function QuestsPanel({
     [memberNames, memberFilter],
   );
 
-  const colorOf = useMemo(() => {
-    const byName = new Map(members.map((m) => [m.name, m.color]));
-    return (name: string) => byName.get(name) ?? colorForName(name);
-  }, [members]);
+  const colorOf = useMemberColor(members);
 
   const pool = useMemo(() => questsInCategory(category), [category]);
   const poolPoints = useMemo(() => pool.reduce((sum, q) => sum + q.questPoints, 0), [pool]);
@@ -131,6 +131,12 @@ export function QuestsPanel({
   const singleMember = columns.length === 1;
   const typeLabel =
     category === 'all' ? 'entries' : QUEST_CATEGORY_LABEL[category].toLowerCase();
+
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [query, progress, category, memberFilter]);
+  const visible = useMemo(() => rows.slice(0, visibleCount), [rows, visibleCount]);
 
   return (
     <section className="gms-quests gms-panel" aria-label="Group quests" aria-busy={loading}>
@@ -217,7 +223,7 @@ export function QuestsPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map((quest) => (
+              {visible.map((quest) => (
                 <QuestRow
                   key={quest.gameval}
                   quest={quest}
@@ -228,6 +234,13 @@ export function QuestsPanel({
               ))}
             </tbody>
           </table>
+        )}
+
+        {rows.length > visibleCount && (
+          <LoadMoreButton
+            loading={false}
+            onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+          />
         )}
       </div>
     </section>
@@ -240,7 +253,7 @@ const STATE_LABEL: Record<string, string> = {
   not_started: 'Not started',
 };
 
-function QuestRow({
+const QuestRow = memo(function QuestRow({
   quest,
   columns,
   byMember,
@@ -288,7 +301,7 @@ function QuestRow({
       })}
     </tr>
   );
-}
+});
 
 /** Completion glyph: filled check, half-filled circle, or an empty ring. */
 function Mark({ state, label }: { state: QuestState | null; label?: string }) {
