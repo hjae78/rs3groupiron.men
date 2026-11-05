@@ -1,8 +1,9 @@
 import { AppearanceTheme, GroupMode } from '@prisma/client';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import { GamevalsService } from '../gamevals/gamevals.service';
-import { QuestCatalogService } from '../gamevals/quest-catalog.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
+import { InventoryStorageService } from './inventory-storage.service';
 import { GroupsService } from './groups.service';
 import {
   WIRE_INVENTORIES,
@@ -11,7 +12,6 @@ import {
 } from './item-codec';
 import { XpHistoryService } from './xp-history.service';
 import type { PlayerVerificationService } from './player-verification.service';
-import { RareItemsService } from '../items/rare-items.service';
 
 const TOKEN = 'group-token-value';
 const MEMBER = 'IronJackery';
@@ -99,27 +99,22 @@ function makeService(opts: {
     },
   } as unknown as PrismaService;
 
+  const xpHistory = {
+    recordXpSamples: jest.fn().mockResolvedValue(undefined),
+  } as unknown as XpHistoryService;
   const groups = new GroupsService(
     prisma,
     new GroupAccessService(prisma),
-    {
-      recordXpSamples: jest.fn().mockResolvedValue(undefined),
-    } as unknown as XpHistoryService,
+    xpHistory,
     new GamevalsService(),
-    new QuestCatalogService(),
-    rareItems(),
     {} as PlayerVerificationService,
+    new GroupChangeNotifier(),
+    new InventoryStorageService(xpHistory),
   );
 
   /** Every `dataUpdatedAt` the write path set, if any. */
   const bumps = () => memberUpdates.filter((d) => 'dataUpdatedAt' in d);
   return { groups, bumps, tx };
-}
-
-function rareItems() {
-  const service = new RareItemsService();
-  service.load('data/rare-items.json');
-  return service;
 }
 
 describe('dataUpdatedAt', () => {

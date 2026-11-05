@@ -1,12 +1,12 @@
 import { AppearanceTheme, GroupMode } from '@prisma/client';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import { GamevalsService } from '../gamevals/gamevals.service';
-import { QuestCatalogService } from '../gamevals/quest-catalog.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
 import { GroupsService } from './groups.service';
+import { InventoryStorageService } from './inventory-storage.service';
 import { XpHistoryService } from './xp-history.service';
 import type { PlayerVerificationService } from './player-verification.service';
-import { RareItemsService } from '../items/rare-items.service';
 
 const TOKEN = 'group-token-value';
 const MEMBER = 'IronJackery';
@@ -61,16 +61,17 @@ function makeService(memberBank: Row[], sharedBank: Row[]) {
         }),
     },
   } as unknown as PrismaService;
+  const xpHistory = {
+    recordXpSamples: jest.fn().mockResolvedValue(undefined),
+  } as unknown as XpHistoryService;
   const groups = new GroupsService(
     prisma,
     new GroupAccessService(prisma),
-    {
-      recordXpSamples: jest.fn().mockResolvedValue(undefined),
-    } as unknown as XpHistoryService,
+    xpHistory,
     new GamevalsService(),
-    new QuestCatalogService(),
-    rareItems(),
     {} as PlayerVerificationService,
+    new GroupChangeNotifier(),
+    new InventoryStorageService(xpHistory),
   );
   return { groups, tx };
 }
@@ -79,12 +80,6 @@ const BANK: Row[] = [
   { slot: 0, itemId: 995, quantity: 1_000_000 },
   { slot: 1, itemId: 4151, quantity: 1 },
 ];
-
-function rareItems() {
-  const service = new RareItemsService();
-  service.load('data/rare-items.json');
-  return service;
-}
 
 describe('inventory_changes', () => {
   it('patches only the named items and bumps dataUpdatedAt', async () => {

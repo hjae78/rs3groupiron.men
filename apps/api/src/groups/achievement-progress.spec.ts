@@ -1,11 +1,9 @@
 import { AppearanceTheme, GroupMode } from '@prisma/client';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import { GamevalsService } from '../gamevals/gamevals.service';
-import { QuestCatalogService } from '../gamevals/quest-catalog.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
-import { GroupsService } from './groups.service';
-import { XpHistoryService } from './xp-history.service';
-import type { PlayerVerificationService } from './player-verification.service';
+import { GroupAchievementsService } from './achievements.service';
 import { RareItemsService } from '../items/rare-items.service';
 
 const TOKEN = 'group-token-value';
@@ -58,16 +56,12 @@ function makeService(stored: string[]) {
 
   const gamevals = new GamevalsService();
   gamevals.onModuleInit();
-  const groups = new GroupsService(
+  const groups = new GroupAchievementsService(
     prisma,
     new GroupAccessService(prisma),
-    {
-      recordXpSamples: jest.fn().mockResolvedValue(undefined),
-    } as unknown as XpHistoryService,
     gamevals,
-    new QuestCatalogService(),
     rareItems(),
-    {} as PlayerVerificationService,
+    new GroupChangeNotifier(),
   );
   return { groups, tx };
 }

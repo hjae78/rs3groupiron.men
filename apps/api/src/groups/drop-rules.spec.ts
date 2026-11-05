@@ -1,15 +1,14 @@
 import { GroupAccessService } from './group-access.service';
-import { GroupsService } from './groups.service';
+import { GroupAchievementsService } from './achievements.service';
 import { RareItemsService } from '../items/rare-items.service';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import type { GamevalsService } from '../gamevals/gamevals.service';
-import type { QuestCatalogService } from '../gamevals/quest-catalog.service';
-import type { XpHistoryService } from './xp-history.service';
-import type { PlayerVerificationService } from './player-verification.service';
 import type { PrismaService } from '../prisma/prisma.service';
 
 const GROUP = {
   id: 'g1',
   name: 'Testing',
+  dropThreshold: 0,
   members: [{ id: 'm1', name: 'Swan Swear' }],
 };
 
@@ -30,11 +29,6 @@ function build(options: {
     groupRareItem: {
       findUnique: jest.fn().mockResolvedValue(options.override ?? null),
     },
-    group: {
-      findUnique: jest
-        .fn()
-        .mockResolvedValue({ dropThreshold: options.threshold ?? 0 }),
-    },
     achievement: {
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         created.push(data);
@@ -51,21 +45,21 @@ function build(options: {
   } as unknown as PrismaService;
 
   const access = {
-    write: jest.fn().mockResolvedValue(GROUP),
+    write: jest
+      .fn()
+      .mockResolvedValue({ ...GROUP, dropThreshold: options.threshold ?? 0 }),
   } as unknown as GroupAccessService;
   const rare = new RareItemsService();
   rare.load('data/rare-items.json');
 
-  const groups = new GroupsService(
+  const achievements = new GroupAchievementsService(
     prisma,
     access,
-    {} as XpHistoryService,
     {} as GamevalsService,
-    {} as QuestCatalogService,
     rare,
-    {} as PlayerVerificationService,
+    new GroupChangeNotifier(),
   );
-  return { groups, created };
+  return { groups: achievements, created };
 }
 
 describe('drop rules', () => {
@@ -165,7 +159,7 @@ describe('drop rules', () => {
 
 /** "Only tell me about 100+ blood runes", for noted and stackable drops. */
 describe('quantity range', () => {
-  const report = (groups: GroupsService, quantity?: number) =>
+  const report = (groups: GroupAchievementsService, quantity?: number) =>
     groups.reportDrop('Testing', 't', {
       name: 'Swan Swear',
       item_id: UNLISTED_ID,

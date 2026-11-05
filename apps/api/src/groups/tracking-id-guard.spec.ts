@@ -1,23 +1,17 @@
 import { ForbiddenException } from '@nestjs/common';
 import { AppearanceTheme, GroupMode } from '@prisma/client';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import { GamevalsService } from '../gamevals/gamevals.service';
-import { QuestCatalogService } from '../gamevals/quest-catalog.service';
-import { RareItemsService } from '../items/rare-items.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
 import { GroupsService } from './groups.service';
+import { InventoryStorageService } from './inventory-storage.service';
 import { hashTrackingId } from './player-verification';
 import type { PlayerVerificationService } from './player-verification.service';
 import { XpHistoryService } from './xp-history.service';
 
 const TOKEN = 'group-token-value';
 const MEMBER = 'IronJackery';
-
-function rareItems() {
-  const service = new RareItemsService();
-  service.load('data/rare-items.json');
-  return service;
-}
 
 /**
  * A verified member's tracking id, if it has one, is checked against every
@@ -48,16 +42,17 @@ function makeService(trackingIdHash: string | null) {
         }),
     },
   } as unknown as PrismaService;
+  const xpHistory = {
+    recordXpSamples: jest.fn().mockResolvedValue(undefined),
+  } as unknown as XpHistoryService;
   const groups = new GroupsService(
     prisma,
     new GroupAccessService(prisma),
-    {
-      recordXpSamples: jest.fn().mockResolvedValue(undefined),
-    } as unknown as XpHistoryService,
+    xpHistory,
     new GamevalsService(),
-    new QuestCatalogService(),
-    rareItems(),
     {} as PlayerVerificationService,
+    new GroupChangeNotifier(),
+    new InventoryStorageService(xpHistory),
   );
   return { groups, tx, memberFindUnique };
 }

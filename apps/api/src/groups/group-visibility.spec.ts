@@ -1,8 +1,7 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { AppearanceTheme, GroupMode, GroupVisibility } from '@prisma/client';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import { GamevalsService } from '../gamevals/gamevals.service';
-import { QuestCatalogService } from '../gamevals/quest-catalog.service';
-import { RareItemsService } from '../items/rare-items.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DEFAULT_SCOPE,
@@ -15,6 +14,7 @@ import {
 import { sharesToColumns } from './group-fields';
 import { redactWireEntries, type WireEntry } from './group-wire';
 import { GroupsService } from './groups.service';
+import { InventoryStorageService } from './inventory-storage.service';
 import type { PlayerVerificationService } from './player-verification.service';
 import { XpHistoryService } from './xp-history.service';
 
@@ -106,12 +106,6 @@ function fakePrisma() {
   return prisma;
 }
 
-function rareItems() {
-  const service = new RareItemsService();
-  service.load('data/rare-items.json');
-  return service;
-}
-
 function service(
   prisma: PrismaService,
   verification?: PlayerVerificationService,
@@ -121,9 +115,9 @@ function service(
     new GroupAccessService(prisma),
     {} as XpHistoryService,
     new GamevalsService(),
-    new QuestCatalogService(),
-    rareItems(),
     verification ?? ({} as PlayerVerificationService),
+    new GroupChangeNotifier(),
+    new InventoryStorageService({} as XpHistoryService),
   );
 }
 

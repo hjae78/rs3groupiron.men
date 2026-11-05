@@ -1,7 +1,11 @@
 import { Subject, firstValueFrom } from 'rxjs';
 import { take } from 'rxjs/operators';
+import type {
+  GroupChange,
+  GroupChangeNotifier,
+} from './group-change-notifier.service';
 import { GroupEventsService } from './group-events.service';
-import { GroupsService, type GroupChange } from './groups.service';
+import { GroupSnapshotService } from './group-snapshot.service';
 
 const GROUP = 'group-1';
 
@@ -13,14 +17,20 @@ type BuildCall = { groupId: string; since: number };
 function makeService() {
   const changed = new Subject<GroupChange>();
   const calls: BuildCall[] = [];
-  const groups = {
-    changed$: changed.asObservable(),
+  const snapshot = {
     buildGroupData: (groupId: string, since: number) => {
       calls.push({ groupId, since });
       return Promise.resolve([{ name: 'IronJackery' }]);
     },
-  } as unknown as GroupsService;
-  return { events: new GroupEventsService(groups), changed, calls };
+  } as unknown as GroupSnapshotService;
+  const notifier = {
+    changed$: changed.asObservable(),
+  } as unknown as GroupChangeNotifier;
+  return {
+    events: new GroupEventsService(snapshot, notifier),
+    changed,
+    calls,
+  };
 }
 
 describe('GroupEventsService', () => {

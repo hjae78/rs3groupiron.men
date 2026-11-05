@@ -1,9 +1,15 @@
 import { Module } from '@nestjs/common';
 import { R2Module } from '../uploads/r2.module';
+import { GroupAchievementsService } from './achievements.service';
 import { GroupAccessService } from './group-access.service';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import { GroupEventsService } from './group-events.service';
 import { GroupExportService } from './group-export.service';
 import { GroupPurgeService } from './group-purge.service';
+import { GroupSnapshotService } from './group-snapshot.service';
+import { InventoryStorageService } from './inventory-storage.service';
+import { MemberActivityService } from './member-activity.service';
+import { GroupQuestsService } from './quests.service';
 import { GroupsSeedService } from './groups-seed.service';
 import {
   GroupsAuthedController,
@@ -23,10 +29,16 @@ import { XpHistoryService } from './xp-history.service';
   controllers: [GroupsPublicController, GroupsAuthedController, PlayersController],
   providers: [
     GroupAccessService,
+    GroupChangeNotifier,
     GroupsService,
     GroupsSeedService,
     GroupExportService,
     GroupPurgeService,
+    GroupSnapshotService,
+    MemberActivityService,
+    GroupQuestsService,
+    GroupAchievementsService,
+    InventoryStorageService,
     PlayerVerificationService,
     PlayerAccessService,
     PlayerAuthGuard,
@@ -37,10 +49,11 @@ import { XpHistoryService } from './xp-history.service';
   ],
   // The uploads module takes GroupAccessService alone: it needs a permission
   // check, not the write paths. The admin module is the one consumer that does
-  // write, so it gets GroupsService (for the change broadcast) and
+  // write, so it gets GroupChangeNotifier (to raise the change broadcast) and
   // GroupPurgeService (to erase a group on demand).
   exports: [
     GroupAccessService,
+    GroupChangeNotifier,
     GroupEventsService,
     GroupsService,
     GroupPurgeService,

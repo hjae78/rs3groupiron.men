@@ -9,7 +9,11 @@ import {
   tap,
   throttleTime,
 } from 'rxjs/operators';
-import { GroupsService, type GroupChangeKind } from './groups.service';
+import {
+  GroupChangeNotifier,
+  type GroupChangeKind,
+} from './group-change-notifier.service';
+import { GroupSnapshotService } from './group-snapshot.service';
 
 export const ALL_CHANGE_KINDS: GroupChangeKind[] = [
   'members',
@@ -34,7 +38,7 @@ const HEARTBEAT_MS = 25_000;
 
 /**
  * Connection caps, sized for sockets rather than for query cost: the connect
- * snapshot is shared through GroupsService, so a connect storm no longer
+ * snapshot is shared through GroupSnapshotService, so a connect storm no longer
  * multiplies database work, and a steady-state viewer costs little beyond its
  * socket and a file descriptor.
  *
@@ -77,7 +81,10 @@ export class GroupEventsService {
    */
   private readonly pendingKinds = new Map<string, Set<GroupChangeKind>>();
 
-  constructor(private readonly groups: GroupsService) {}
+  constructor(
+    private readonly snapshot: GroupSnapshotService,
+    private readonly notifier: GroupChangeNotifier,
+  ) {}
 
   get viewerStats() {
     return { total: this.totalViewers(), groups: this.viewers.size };
@@ -110,7 +117,7 @@ export class GroupEventsService {
     const existing = this.streams.get(groupId);
     if (existing) return existing;
 
-    const stream = this.groups.changed$.pipe(
+    const stream = this.notifier.changed$.pipe(
       filter((change) => change.groupId === groupId),
       tap((change) => {
         const seen = this.pendingKinds.get(groupId) ?? new Set<GroupChangeKind>();
@@ -128,7 +135,7 @@ export class GroupEventsService {
         const at = Date.now();
         const kinds = [...(this.pendingKinds.get(groupId) ?? [])];
         this.pendingKinds.delete(groupId);
-        const data = await this.groups.buildGroupData(groupId, since, true);
+        const data = await this.snapshot.buildGroupData(groupId, since, true);
         this.lastBroadcast.set(groupId, at);
         return {
           type: 'delta' as const,
@@ -157,7 +164,7 @@ export class GroupEventsService {
   stream(groupId: string): Observable<GroupEvent> {
     const snapshot$ = defer(async () => {
       const at = Date.now();
-      const data = await this.groups.buildGroupData(groupId, 0, true);
+      const data = await this.snapshot.buildGroupData(groupId, 0, true);
       // Only seeds the cursor for the first viewer, so the first delta starts
       // right after this snapshot. A later joiner must not move it: the cursor
       // is shared, and skipping it past a change still inside the throttle

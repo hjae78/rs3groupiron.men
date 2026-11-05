@@ -24,9 +24,13 @@ import type { Response } from 'express';
 import type { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { allowDevReset, isProduction } from '../config/env';
+import { GroupAchievementsService } from './achievements.service';
 import { GroupAccessService, visibleChangeKind } from './group-access.service';
 import { GroupEventsService } from './group-events.service';
 import { GroupExportService } from './group-export.service';
+import { MemberActivityService } from './member-activity.service';
+import { GroupQuestsService } from './quests.service';
+import { GroupSnapshotService } from './group-snapshot.service';
 import { GroupsSeedService } from './groups-seed.service';
 import { redactWireEntries, type WireEntry } from './group-wire';
 import {
@@ -153,6 +157,10 @@ export class GroupsAuthedController {
     private readonly events$: GroupEventsService,
     private readonly exporter: GroupExportService,
     private readonly verification: PlayerVerificationService,
+    private readonly snapshot: GroupSnapshotService,
+    private readonly activity: MemberActivityService,
+    private readonly quests: GroupQuestsService,
+    private readonly achievements: GroupAchievementsService,
   ) {}
 
   @Get('am-i-logged-in')
@@ -250,7 +258,7 @@ export class GroupsAuthedController {
     @Query('from_time') fromTime?: string,
     @Query('split') split?: string,
   ) {
-    return this.groups.getGroupData(
+    return this.snapshot.getGroupData(
       groupName,
       authorization,
       fromTime,
@@ -307,7 +315,7 @@ export class GroupsAuthedController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.groups.getAchievements(
+    return this.achievements.getAchievements(
       groupName,
       authorization,
       limit,
@@ -326,7 +334,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: CreateAchievementBody,
   ) {
-    return this.groups.createAchievement(groupName, authorization, body);
+    return this.achievements.createAchievement(groupName, authorization, body);
   }
 
   /**
@@ -338,7 +346,7 @@ export class GroupsAuthedController {
     @Param('groupName') groupName: string,
     @Headers('authorization') authorization: string | undefined,
   ) {
-    return this.groups.getMemberQuests(groupName, authorization);
+    return this.quests.getMemberQuests(groupName, authorization);
   }
 
   /** Plugin quest sync. Newly finished quests also land in the achievement feed. */
@@ -349,7 +357,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: UpdateMemberQuestsBody,
   ) {
-    return this.groups.updateMemberQuests(groupName, authorization, body);
+    return this.quests.updateMemberQuests(groupName, authorization, body);
   }
 
   /**
@@ -361,7 +369,7 @@ export class GroupsAuthedController {
     @Param('groupName') groupName: string,
     @Headers('authorization') authorization: string | undefined,
   ) {
-    return this.groups.getMemberAchievements(groupName, authorization);
+    return this.achievements.getMemberAchievements(groupName, authorization);
   }
 
   /** Plugin achievement sync. Newly completed ones also land in the feed. */
@@ -372,7 +380,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: UpdateMemberAchievementsBody,
   ) {
-    return this.groups.updateMemberAchievements(groupName, authorization, body);
+    return this.achievements.updateMemberAchievements(groupName, authorization, body);
   }
 
   @Post('update-group-member')
@@ -393,7 +401,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: PlayerMovedBody,
   ) {
-    return this.groups.playerMoved(groupName, authorization, body);
+    return this.activity.playerMoved(groupName, authorization, body);
   }
 
   /** The group's drop rules: value threshold plus its own item opinions. */
@@ -402,7 +410,7 @@ export class GroupsAuthedController {
     @Param('groupName') groupName: string,
     @Headers('authorization') authorization: string | undefined,
   ) {
-    return this.groups.getDropRules(groupName, authorization);
+    return this.achievements.getDropRules(groupName, authorization);
   }
 
   @Post('drop-rules')
@@ -412,7 +420,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: DropRulesBody,
   ) {
-    return this.groups.updateDropRules(groupName, authorization, body);
+    return this.achievements.updateDropRules(groupName, authorization, body);
   }
 
   /** A drop the plugin saw; recorded only when the group's rules keep it. */
@@ -423,7 +431,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: ReportDropBody,
   ) {
-    return this.groups.reportDrop(groupName, authorization, body);
+    return this.achievements.reportDrop(groupName, authorization, body);
   }
 
   /** NPC kills since the member's last report; counts are added, not set. */
@@ -434,7 +442,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: ReportKillsBody,
   ) {
-    return this.groups.reportKills(groupName, authorization, body);
+    return this.activity.reportKills(groupName, authorization, body);
   }
 
   /** Kill counts per member, biggest first. */
@@ -443,7 +451,7 @@ export class GroupsAuthedController {
     @Param('groupName') groupName: string,
     @Headers('authorization') authorization: string | undefined,
   ) {
-    return this.groups.getNpcKills(groupName, authorization);
+    return this.activity.getNpcKills(groupName, authorization);
   }
 
   /** What a member is fighting; an absent target clears it. */
@@ -454,7 +462,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: SetTargetBody,
   ) {
-    return this.groups.setTarget(groupName, authorization, body);
+    return this.activity.setTarget(groupName, authorization, body);
   }
 
   /** The plugin syncing the group's ruleset from the account's varbits. */
@@ -465,7 +473,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: SyncGroupModeBody,
   ) {
-    return this.groups.syncGroupMode(groupName, authorization, body);
+    return this.activity.syncGroupMode(groupName, authorization, body);
   }
 
   /** Opt a member in or out of the live map. */
@@ -476,7 +484,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: SetLocationSharingBody,
   ) {
-    return this.groups.setLocationSharing(groupName, authorization, body);
+    return this.activity.setLocationSharing(groupName, authorization, body);
   }
 
   /** Mark a member online/offline (plugin login/logout). */
@@ -487,7 +495,7 @@ export class GroupsAuthedController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: SetMemberOnlineBody,
   ) {
-    return this.groups.setMemberOnline(groupName, authorization, body);
+    return this.activity.setMemberOnline(groupName, authorization, body);
   }
 
   @Post('add-group-member')

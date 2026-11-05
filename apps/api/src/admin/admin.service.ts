@@ -1,9 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { GroupVisibility, Prisma } from '@prisma/client';
+import { GroupChangeNotifier } from '../groups/group-change-notifier.service';
 import { deletionDueAt, deletionStatus } from '../groups/group-deletion';
 import { playableCount } from '../groups/group-fields';
 import { GroupPurgeService } from '../groups/group-purge.service';
-import { GroupsService } from '../groups/groups.service';
 import { SHARED_MEMBER } from '../groups/group.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { DAY_MS, fillDays, startOfUtcDay } from './admin-days';
@@ -51,7 +51,7 @@ export class AdminService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly groups: GroupsService,
+    private readonly notifier: GroupChangeNotifier,
     private readonly purge: GroupPurgeService,
   ) {}
 
@@ -186,7 +186,7 @@ export class AdminService {
       data: { deletionRequestedAt: now, deleteAfter: deletionDueAt(now) },
       select: { deletionRequestedAt: true, deleteAfter: true },
     });
-    this.groups.notifyChanged(group.id, 'settings');
+    this.notifier.notify(group.id, 'settings');
     this.logger.warn(
       `admin scheduled deletion of group "${group.name}" (${group.id})`,
     );
@@ -203,7 +203,7 @@ export class AdminService {
       data: { deletionRequestedAt: null, deleteAfter: null },
       select: { deletionRequestedAt: true, deleteAfter: true },
     });
-    this.groups.notifyChanged(group.id, 'settings');
+    this.notifier.notify(group.id, 'settings');
     return { ok: true, id: group.id, ...deletionStatus(updated) };
   }
 

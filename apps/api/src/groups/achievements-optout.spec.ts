@@ -1,12 +1,14 @@
 import { AppearanceTheme, GroupMode, QuestState } from '@prisma/client';
+import { GroupChangeNotifier } from './group-change-notifier.service';
 import { GamevalsService } from '../gamevals/gamevals.service';
 import { QuestCatalogService } from '../gamevals/quest-catalog.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GroupAccessService } from './group-access.service';
 import { GroupsService } from './groups.service';
+import { GroupQuestsService } from './quests.service';
+import { InventoryStorageService } from './inventory-storage.service';
 import { XpHistoryService } from './xp-history.service';
 import type { PlayerVerificationService } from './player-verification.service';
-import { RareItemsService } from '../items/rare-items.service';
 
 const TOKEN = 'group-token-value';
 const MEMBER = 'IronJackery';
@@ -62,28 +64,34 @@ function makeService() {
   const questCatalog = new QuestCatalogService();
   questCatalog.onModuleInit();
 
+  const access = new GroupAccessService(prisma);
+  const notifier = new GroupChangeNotifier();
+  const xpHistory = {
+    recordXpSamples: jest.fn().mockResolvedValue(undefined),
+  } as unknown as XpHistoryService;
+  const inventoryStorage = new InventoryStorageService(xpHistory);
+
   const groups = new GroupsService(
     prisma,
-    new GroupAccessService(prisma),
-    {
-      recordXpSamples: jest.fn().mockResolvedValue(undefined),
-    } as unknown as XpHistoryService,
+    access,
+    xpHistory,
+    gamevals,
+    {} as PlayerVerificationService,
+    notifier,
+    inventoryStorage,
+  );
+  const quests = new GroupQuestsService(
+    prisma,
+    access,
     gamevals,
     questCatalog,
-    rareItems(),
-    {} as PlayerVerificationService,
+    notifier,
   );
-  return { groups, tx };
+  return { groups, quests, tx };
 }
 
 /** Crossing 99 Mining, which is a milestone by default. */
 const MAXED_MINING = { mining: { xp: 13_034_431, level: 99 } };
-
-function rareItems() {
-  const service = new RareItemsService();
-  service.load('data/rare-items.json');
-  return service;
-}
 
 describe('achievements opt-out', () => {
   it('records a skill milestone by default', async () => {
@@ -111,9 +119,9 @@ describe('achievements opt-out', () => {
   });
 
   it('skips a finished quest feed entry but still stores the quest', async () => {
-    const { groups, tx } = makeService();
+    const { quests, tx } = makeService();
 
-    await groups.updateMemberQuests('Group', TOKEN, {
+    await quests.updateMemberQuests('Group', TOKEN, {
       name: MEMBER,
       quests: [{ gameval: 'cabinfever', state: 'finished' }],
       achievements: false,
@@ -124,9 +132,9 @@ describe('achievements opt-out', () => {
   });
 
   it('records a finished quest in the feed by default', async () => {
-    const { groups, tx } = makeService();
+    const { quests, tx } = makeService();
 
-    await groups.updateMemberQuests('Group', TOKEN, {
+    await quests.updateMemberQuests('Group', TOKEN, {
       name: MEMBER,
       quests: [{ gameval: 'cabinfever', state: 'finished' }],
     });
