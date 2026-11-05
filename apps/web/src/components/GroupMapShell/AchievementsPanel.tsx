@@ -120,16 +120,18 @@ export function AchievementsPanel({
   });
 
   // Injected entries skip the API, so the active filters are applied here.
+  // They're merged by time rather than pinned to the top, so a seeded entry
+  // from this morning lands under this morning's day header, not today's.
   const entries = useMemo(() => {
-    const all = injected?.length
-      ? [
-          ...injected.filter(
-            (entry) =>
-              (kindFilter === 'all' || entry.kind === kindFilter) &&
-              (memberFilter === 'all' || entry.name === memberFilter),
-          ),
-          ...fetched,
-        ]
+    const mine = injected?.length
+      ? injected.filter(
+          (entry) =>
+            (kindFilter === 'all' || entry.kind === kindFilter) &&
+            (memberFilter === 'all' || entry.name === memberFilter),
+        )
+      : [];
+    const all = mine.length
+      ? [...mine, ...fetched].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
       : fetched;
 
     const q = query.trim().toLowerCase();

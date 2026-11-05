@@ -29,6 +29,17 @@ export function lookupItemName(itemId: number): string | undefined {
   return names[itemId];
 }
 
+/**
+ * A real item id drawn from the loaded catalogue, for sample/demo content
+ * that needs plausible-looking loot rather than a hand-picked list. Undefined
+ * before the catalogue has loaded; callers should fall back to a fixed id.
+ */
+export function randomCatalogueId(): number | undefined {
+  const ids = Object.keys(names);
+  if (!ids.length) return undefined;
+  return Number(ids[Math.floor(Math.random() * ids.length)]);
+}
+
 export type ItemNameHit = { id: number; name: string; at: number };
 
 /**

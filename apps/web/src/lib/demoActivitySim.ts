@@ -1,3 +1,4 @@
+import { randomCatalogueId } from './itemNames';
 import type { ItemStack, PlayerView } from './items';
 
 export type DemoSkillGains = Record<string, number>;
@@ -7,12 +8,24 @@ export type Heading = { dx: number; dy: number };
 
 const XP_BUCKETS = [12, 24, 50, 84, 132, 220, 360, 540, 920, 1500];
 
-export const LOOT = [
-  995, 1050, 1249, 1163, 1127, 4151, 11832, 11834, 1515, 441, 453, 1623, 1631,
-  2357, 2363, 561, 565, 560, 384, 391, 7937, 15271, 23351,
-];
+/** Coins: always a real id, so loot shuffles have something before the catalogue loads. */
+const FALLBACK_LOOT_ID = 995;
 
-export const BANK_QUANTITIES = [1, 1, 2, 3, 5, 10, 24, 50, 100, 280, 1000, 5000, 24_000, 150_000];
+/** A real item id for simulated loot, drawn from the actual catalogue rather than a fixed list. */
+export function pickLootId(): number {
+  return randomCatalogueId() ?? FALLBACK_LOOT_ID;
+}
+
+/**
+ * A bank-movement quantity, picked across orders of magnitude (ones through
+ * tens of thousands) rather than off a fixed list, so ledger noise doesn't
+ * keep landing on the same handful of amounts.
+ */
+export function randomBankQuantity(): number {
+  const magnitude = Math.floor(Math.random() * 5);
+  const base = 10 ** magnitude;
+  return Math.max(1, Math.round((1 + Math.random() * 9) * base));
+}
 
 export function pick<T>(list: readonly T[]): T {
   return list[Math.floor(Math.random() * list.length)]!;
@@ -99,7 +112,7 @@ function shuffleStacks(stacks: ItemStack[], slots: number): ItemStack[] {
     const current = next[index]!;
     next[index] =
       Math.random() < 0.5
-        ? { ...current, id: pick(LOOT) }
+        ? { ...current, id: pickLootId() }
         : { ...current, quantity: Math.max(1, Math.round(current.quantity * (0.5 + Math.random()))) };
   }
   return next;

@@ -121,7 +121,9 @@ export function LedgerPanel({
         !bounds ||
         (entry.at >= bounds.from && (bounds.to === undefined || entry.at < bounds.to)),
     );
-    return extra.length ? [...extra, ...fetched] : fetched;
+    return extra.length
+      ? [...extra, ...fetched].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+      : fetched;
   }, [injected, fetched, bounds]);
 
   const colorOf = useMemberColor(members);

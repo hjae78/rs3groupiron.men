@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Achievement, AchievementKind, BankLedgerEntry } from '../api/groupClient';
 import {
-  BANK_QUANTITIES,
-  LOOT,
   cloneTotals,
   pick,
+  pickLootId,
+  randomBankQuantity,
   stepPlayer,
   type DemoXpTotals,
   type Heading,
 } from '../lib/demoActivitySim';
+import { lookupItemName } from '../lib/itemNames';
 import type { PlayerView } from '../lib/items';
 import { QUESTS, type MemberQuestStates, type QuestState } from '../lib/quests';
 
@@ -36,9 +37,6 @@ const MAX_DEMO_LEDGER = 60;
 const QUEST_MS = 9000;
 const MAX_XP_SAMPLES = 16;
 
-/** The demo has no real captures, so every entry shows the same placeholder. */
-const DEMO_SHOT = '/demo-shots/images-not-supported.png';
-
 const DAY_MS = 86_400_000;
 /** Backfill for the 24-hour window the feed panels open on. */
 const SEED_LEDGER_BATCHES = 14;
@@ -47,38 +45,45 @@ const SEED_DROPS = 9;
 
 export const DEMO_XP_SAMPLE_MS = 12_000;
 
+const COINS_ITEM_ID = 995;
+
 const DEMO_QUESTS = QUESTS.filter((q) => q.category === 'quest' && q.questPoints > 0);
 const QUEST_BY_GAMEVAL = new Map(DEMO_QUESTS.map((q) => [q.gameval, q]));
 
 /**
- * Rare drops carry a real item id, because the panel labels and prices them
- * from the catalogue rather than from the title. `detail` is the source line
- * the feed shows under the item.
+ * Where a drop is said to have come from. Kept separate from the item itself:
+ * the catalogue has no notion of which boss or activity drops what, so this
+ * is flavour text picked independently of the (real, catalogue-drawn) item.
  */
-const DROP_TEMPLATES: Array<{
-  itemId: number;
-  title: string;
-  detail: string;
-  /** Stackables carry one so the feed draws the game's stacked art. */
-  quantity?: number;
-}> = [
-  { itemId: 15259, title: 'Received a Dragon hatchet', detail: 'Dagannoth Kings' },
-  { itemId: 11694, title: 'Received an Armadyl godsword', detail: 'Kree’arra' },
-  { itemId: 4151, title: 'Received an Abyssal whip', detail: 'Abyssal demon' },
-  { itemId: 1249, title: 'Received a Dragon spear', detail: 'Kalphite Queen' },
-  { itemId: 23351, title: 'Received an Elder overload', detail: 'Raids chest' },
-  { itemId: 11832, title: 'Received a Bandos chestplate', detail: 'General Graardor' },
-  { itemId: 11834, title: 'Received Bandos tassets', detail: 'General Graardor' },
-  { itemId: 15271, title: 'Received a Rune pouch', detail: 'Crazy archaeologist' },
-  { itemId: 565, title: 'Received Blood runes', detail: 'Zamorak chest', quantity: 1200 },
-  { itemId: 995, title: 'Received Coins', detail: 'Clue scroll', quantity: 2_400_000 },
+const DROP_SOURCES = [
+  'Boss drop',
+  'Raids chest',
+  'Treasure Hunter',
+  'Clue scroll',
+  'Elite dungeon',
+  'Slayer dungeon',
+  'Wilderness',
 ];
+
+/** A rare-drop achievement for a real, randomly drawn item rather than a fixed list. */
+function randomDrop(): { itemId: number; title: string; detail: string } {
+  const itemId = pickLootId();
+  const name = lookupItemName(itemId) ?? `Item ${itemId}`;
+  return { itemId, title: `Received ${name}`, detail: pick(DROP_SOURCES) };
+}
 
 const ACHIEVEMENT_TEMPLATES: Array<{ kind: AchievementKind; title: string; detail: string | null }> = [
   { kind: 'level', title: 'Reached level 99 Mining', detail: 'A new skill cape is earned' },
   { kind: 'level', title: 'Reached level 120 Slayer', detail: 'Mastery beyond 99' },
+  { kind: 'level', title: 'Reached level 99 Herblore', detail: 'A new skill cape is earned' },
+  { kind: 'level', title: 'Reached level 99 Dungeoneering', detail: 'A new skill cape is earned' },
+  { kind: 'level', title: 'Reached level 120 Invention', detail: 'Mastery beyond 99' },
   { kind: 'diary', title: 'Finished the Varrock achievements', detail: 'Hard tier complete' },
+  { kind: 'diary', title: 'Finished the Falador achievements', detail: 'Elite tier complete' },
+  { kind: 'diary', title: 'Finished the Karamja achievements', detail: 'Medium tier complete' },
   { kind: 'other', title: 'Unlocked a new music track', detail: null },
+  { kind: 'other', title: 'Reached 2,000 total level', detail: null },
+  { kind: 'other', title: 'Completed a Treasure Hunter streak', detail: '7 days in a row' },
 ];
 
 export function mergeQuestStates(
@@ -124,6 +129,7 @@ export function useDemoActivity(enabled: boolean, patchPlayers: PatchPlayers): D
   const tickRef = useRef(0);
   const seqRef = useRef(0);
   const seededRef = useRef(false);
+  const wokeRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -151,7 +157,7 @@ export function useDemoActivity(enabled: boolean, patchPlayers: PatchPlayers): D
         item_id: template.itemId ?? null,
         quantity: template.quantity ?? null,
         gameval,
-        image_url: DEMO_SHOT,
+        image_url: null,
         at,
       };
     };
@@ -172,18 +178,46 @@ export function useDemoActivity(enabled: boolean, patchPlayers: PatchPlayers): D
     };
 
     const dropEntry = (names: string[], at: string) => {
-      const template = pick(DROP_TEMPLATES);
+      const drop = randomDrop();
       return make(
         pick(names),
         {
           kind: 'drop',
-          title: template.title,
-          detail: template.detail,
-          itemId: template.itemId,
-          quantity: template.quantity,
+          title: drop.title,
+          detail: drop.detail,
+          itemId: drop.itemId,
         },
         at,
       );
+    };
+
+    /**
+     * Ties a drop to the rest of the demo: it lands in the bank ledger the
+     * same way the sample screenshot claims, and coins specifically land in
+     * the pouch rather than the bank, since that is where the game puts them.
+     */
+    const creditDrop = (entry: Achievement) => {
+      if (entry.item_id == null) return;
+      const quantity = entry.quantity ?? 1;
+      seqRef.current += 1;
+      const ledgerEntry: BankLedgerEntry = {
+        id: `demo-bank-${seqRef.current}`,
+        name: entry.name,
+        item_id: entry.item_id,
+        delta: quantity,
+        at: entry.at,
+      };
+      setLedger((prev) => [ledgerEntry, ...prev].slice(0, MAX_DEMO_LEDGER));
+
+      if (entry.item_id === COINS_ITEM_ID) {
+        patchPlayers((prev) =>
+          prev.map((player) =>
+            player.name === entry.name
+              ? { ...player, moneyPouch: player.moneyPouch + quantity }
+              : player,
+          ),
+        );
+      }
     };
 
     // The tick updater rolls dice, so React can run it twice and keep only the
@@ -206,15 +240,29 @@ export function useDemoActivity(enabled: boolean, patchPlayers: PatchPlayers): D
       const id = tickRef.current;
       patchPlayers((prev) => {
         if (!prev.length) return prev;
-        namesRef.current = prev.filter((p) => p.online).map((p) => p.name);
+        // The seed data's timestamps are old, so every member reads as
+        // offline until this runs once against the real, fetched roster —
+        // trying it at mount is too early, since that fetch is still in
+        // flight, so it waits for whichever tick first sees real players.
+        let base = prev;
+        if (!wokeRef.current) {
+          wokeRef.current = true;
+          base = prev.map((player) =>
+            player.online
+              ? player
+              : { ...player, online: true, lastSeen: new Date().toISOString() },
+          );
+        }
+        namesRef.current = base.filter((p) => p.online).map((p) => p.name);
         const onlineCount = namesRef.current.length;
         const log: DemoXpTotals = {};
-        const next = prev.map((player) =>
+        const next = base.map((player) =>
           stepPlayer(player, headingsRef.current, onlineCount, log),
         );
         pendingRef.current = { id, log };
         return next.some((player, i) => player !== prev[i]) ? next : prev;
       });
+      seed();
     };
 
     const sample = () => {
@@ -233,11 +281,11 @@ export function useDemoActivity(enabled: boolean, patchPlayers: PatchPlayers): D
       const batch: BankLedgerEntry[] = [];
       for (let n = 0, count = 1 + Math.floor(Math.random() * 2); n < count; n += 1) {
         seqRef.current += 1;
-        const quantity = pick(BANK_QUANTITIES);
+        const quantity = randomBankQuantity();
         batch.push({
           id: `demo-bank-${seqRef.current}`,
           name: pick(names),
-          item_id: pick(LOOT),
+          item_id: pickLootId(),
           delta: Math.random() < 0.6 ? quantity : -quantity,
           at,
         });
@@ -267,21 +315,48 @@ export function useDemoActivity(enabled: boolean, patchPlayers: PatchPlayers): D
       // Spread across the day with a little jitter, so the feed has believable
       // gaps and day headers rather than one drop every two hours on the dot.
       const dropSeed: Achievement[] = [];
+      const dropLedger: BankLedgerEntry[] = [];
+      const coinGains: Record<string, number> = {};
       for (let i = SEED_DROPS; i > 0; i -= 1) {
         const slot = (i - Math.random()) / SEED_DROPS;
-        dropSeed.push(dropEntry(names, new Date(now - slot * DAY_MS).toISOString()));
+        const entry = dropEntry(names, new Date(now - slot * DAY_MS).toISOString());
+        dropSeed.push(entry);
+        if (entry.item_id != null) {
+          const quantity = entry.quantity ?? 1;
+          seqRef.current += 1;
+          dropLedger.push({
+            id: `demo-bank-${seqRef.current}`,
+            name: entry.name,
+            item_id: entry.item_id,
+            delta: quantity,
+            at: entry.at,
+          });
+          if (entry.item_id === COINS_ITEM_ID) {
+            coinGains[entry.name] = (coinGains[entry.name] ?? 0) + quantity;
+          }
+        }
       }
       // Reversed so the whole list stays newest-first, like the live pushes:
       // the cap then trims the oldest entries rather than the newest seeded one.
       setAchievements((prev) =>
         [...prev, ...dropSeed.reverse()].slice(0, MAX_DEMO_ACHIEVEMENTS),
       );
+      if (Object.keys(coinGains).length) {
+        patchPlayers((prev) =>
+          prev.map((player) =>
+            coinGains[player.name]
+              ? { ...player, moneyPouch: player.moneyPouch + coinGains[player.name]! }
+              : player,
+          ),
+        );
+      }
 
-      const ledgerSeed: BankLedgerEntry[] = [];
+      const ledgerSeed: BankLedgerEntry[] = [...dropLedger];
       for (let i = SEED_LEDGER_BATCHES; i > 0; i -= 1) {
         const at = new Date(now - (i / SEED_LEDGER_BATCHES) * DAY_MS).toISOString();
         ledgerSeed.push(...bankBatch(at, names));
       }
+      ledgerSeed.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
       setLedger((prev) =>
         [...prev, ...ledgerSeed.reverse()].slice(0, MAX_DEMO_LEDGER),
       );
@@ -349,14 +424,15 @@ export function useDemoActivity(enabled: boolean, patchPlayers: PatchPlayers): D
       if (Math.random() < 0.5) {
         const entry = dropEntry(names, new Date().toISOString());
         setAchievements((prev) => [entry, ...prev].slice(0, MAX_DEMO_ACHIEVEMENTS));
+        creditDrop(entry);
         return;
       }
       push(pick(names), pick(ACHIEVEMENT_TEMPLATES));
     };
 
-    // One tick first, so the member names the seed needs are known.
+    // tick() calls seed() itself once real player data has arrived, so this
+    // first call is just what gets that ball rolling before the interval does.
     tick();
-    seed();
 
     const timers = [
       window.setInterval(tick, TICK_MS),
