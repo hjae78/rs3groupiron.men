@@ -1,25 +1,20 @@
-import { useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { DEMO_GROUP, fetchBankLedger, type BankLedgerEntry } from '../../api/groupClient';
 import { useUrlState, useUrlText } from '../../hooks/useUrlState';
-import {
-  DATE_RANGES,
-  dayLabel,
-  rangeBounds,
-  toDayInput,
-  type DateRange,
-} from '../../lib/day';
+import { groupEntriesByDay, toDayInput } from '../../lib/day';
 import { colorForName, formatQty, itemName } from '../../lib/items';
 import { useItemNames } from '../../lib/itemNames';
 import { formatGp, getItemPrices } from '../../lib/itemPrices';
 import { timestamp, toUnix } from '../../lib/time';
-import { usePagedHistory } from '../../hooks/usePagedHistory';
+import { useDayRangeHistory, type DayRangeFetchCtx } from '../../hooks/useDayRangeHistory';
+import { useMemberColor } from '../../hooks/useMemberColor';
 import { DayNav, RANGE_OPTIONS } from './DayNav';
 import { Dropdown, type DropdownOption } from './Dropdown';
-import { downloadCsv, downloadJson } from '../../lib/exportTable';
+import { exportRows } from '../../lib/exportTable';
 import { BankGlyph, EmptyState, SearchGlyph } from './EmptyState';
 import { ExportMenu, type ExportFormat } from './ExportMenu';
 import { ItemIcon } from './ItemIcon';
-import type { MemberBadge } from './memberOptions';
+import { memberDropdownOption, type MemberBadge } from './memberOptions';
 import { LoadMoreButton, PanelStatus } from './PanelChrome';
 import { Segmented, type SegmentedOption } from './Segmented';
 
@@ -73,88 +68,77 @@ export function LedgerPanel({
   const [direction, setDirection] = useUrlState<Direction>('dir', 'all', {
     allowed: DIRECTION_VALUES,
   });
-  const [memberFilter, setMemberFilter] = useUrlState('member', 'all');
-  const [today] = useState(() => toDayInput(new Date()));
-  const [day, setDay] = useUrlState('day', today);
   // Subscribes to the item catalogue: without it nothing starts the fetch and
   // every row stays on its "Item 1623" fallback.
   useItemNames();
   const [query, setQuery] = useUrlText('q');
-  const [range, setRange] = useUrlState<DateRange>('range', '24h', { allowed: DATE_RANGES });
   const [view, setView] = useUrlState<LedgerView>('view', 'list', { allowed: VIEW_VALUES });
 
   const fetchPage = useCallback(
-    ({ before, limit, signal }: { before?: string; limit: number; signal: AbortSignal }) => {
-      const bounds = rangeBounds(range, day, today);
-      return fetchBankLedger(groupName, groupToken, {
+    (
+      { bounds }: DayRangeFetchCtx,
+      { before, limit, signal }: { before?: string; limit: number; signal: AbortSignal },
+    ) =>
+      fetchBankLedger(groupName, groupToken, {
         limit,
         before,
         from: bounds?.from,
         to: bounds?.to,
         signal,
-      });
-    },
-    [groupName, groupToken, range, day, today],
+      }),
+    [groupName, groupToken],
   );
 
   const {
+    today,
+    day,
+    setDay,
+    range,
+    setRange,
+    memberFilter,
+    setMemberFilter,
+    bounds,
     entries: fetched,
     hasMore,
     error,
     loading,
     oldest,
     loadMore,
-  } = usePagedHistory<BankLedgerEntry>({
+    earliest,
+  } = useDayRangeHistory<BankLedgerEntry>({
     fetchPage,
     pageSize: PAGE_SIZE,
     errorFallback: 'Failed to load bank ledger',
     dataRevision,
     refreshMs: 300_000,
+    createdAt,
   });
 
   const entries = useMemo(() => {
     if (!injected?.length) return fetched;
-    const bounds = rangeBounds(range, day, today);
     const extra = injected.filter(
       (entry) =>
         !bounds ||
         (entry.at >= bounds.from && (bounds.to === undefined || entry.at < bounds.to)),
     );
     return extra.length ? [...extra, ...fetched] : fetched;
-  }, [injected, fetched, range, day, today]);
+  }, [injected, fetched, bounds]);
+
+  const colorOf = useMemberColor(members);
 
   const memberChoices = useMemo<Array<DropdownOption<string>>>(() => {
-    const byName = new Map(members.map((m) => [m.name, m.color]));
     const names = [...new Set(entries.map((e) => e.name))].sort((a, b) => a.localeCompare(b));
     return [
       { id: 'all', label: 'All members' },
-      ...names.map((name) => ({
-        id: name,
-        label: name,
-        icon: (
-          <span
-            className="gms-dot"
-            style={{ background: byName.get(name) ?? colorForName(name) }}
-            aria-hidden
-          />
-        ),
-      })),
+      ...names.map((name) => memberDropdownOption(name, colorOf(name))),
     ];
-  }, [entries, members]);
+  }, [entries, colorOf]);
 
   // Days with movement get a dot in the calendar.
   const markedDays = useMemo(
     () => new Set(entries.map((entry) => toDayInput(new Date(entry.at)))),
     [entries],
   );
-
-  // Nothing exists before the group did, so the calendar stops there. Older
-  // API builds omit created_at, in which case the picker stays unbounded.
-  const earliest = useMemo(() => {
-    if (!createdAt) return undefined;
-    const at = new Date(createdAt);
-    return Number.isNaN(at.getTime()) ? undefined : toDayInput(at);
-  }, [createdAt]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -167,16 +151,7 @@ export function LedgerPanel({
     });
   }, [entries, direction, memberFilter, query]);
 
-  const groups = useMemo(() => {
-    const out: Array<{ day: string; rows: BankLedgerEntry[] }> = [];
-    for (const entry of visible) {
-      const label = dayLabel(entry.at);
-      const last = out[out.length - 1];
-      if (last && last.day === label) last.rows.push(entry);
-      else out.push({ day: label, rows: [entry] });
-    }
-    return out;
-  }, [visible]);
+  const groups = useMemo(() => groupEntriesByDay(visible), [visible]);
 
   const allTime = range === 'all';
   const searching = query.trim().length > 0;
@@ -193,27 +168,12 @@ export function LedgerPanel({
         quantity: Math.abs(entry.delta),
         value: getItemPrices(entry.item_id).ge * Math.abs(entry.delta),
       }));
-      const filename = `${groupName}-bank-ledger-${range}`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-');
-
-      if (format === 'json') {
-        downloadJson(filename, rows);
-        return;
-      }
-      downloadCsv({
-        filename,
+      exportRows(format === 'json' ? 'json' : 'csv', {
+        filenameParts: [groupName, 'bank-ledger', range],
         sheet: 'Bank ledger',
-        headers: [
-          'Time (unix)',
-          'Member',
-          'Operation',
-          'Item',
-          'Item ID',
-          'Quantity',
-          'Value',
-        ],
-        rows: rows.map((r) => [
+        headers: ['Time (unix)', 'Member', 'Operation', 'Item', 'Item ID', 'Quantity', 'Value'],
+        rows,
+        toCsvRow: (r) => [
           r.at,
           r.member,
           r.operation,
@@ -221,7 +181,7 @@ export function LedgerPanel({
           r.item_id,
           r.quantity,
           r.value,
-        ]),
+        ],
       });
     },
     [visible, groupName, range],
@@ -359,7 +319,7 @@ export function LedgerPanel({
 }
 
 /** Compact tile: the border carries the direction, green in and red out. */
-function LedgerCard({ entry }: { entry: BankLedgerEntry }) {
+const LedgerCard = memo(function LedgerCard({ entry }: { entry: BankLedgerEntry }) {
   const deposited = entry.delta >= 0;
   const { absolute, stamp } = timestamp(entry.at, false);
   const qty = Math.abs(entry.delta);
@@ -400,9 +360,9 @@ function LedgerCard({ entry }: { entry: BankLedgerEntry }) {
       <span className="gms-ledger-time">{stamp}</span>
     </article>
   );
-}
+});
 
-function LedgerRow({ entry }: { entry: BankLedgerEntry }) {
+const LedgerRow = memo(function LedgerRow({ entry }: { entry: BankLedgerEntry }) {
   const deposited = entry.delta >= 0;
   const { absolute, stamp } = timestamp(entry.at, false);
   const qty = Math.abs(entry.delta);
@@ -438,4 +398,4 @@ function LedgerRow({ entry }: { entry: BankLedgerEntry }) {
       </span>
     </div>
   );
-}
+});

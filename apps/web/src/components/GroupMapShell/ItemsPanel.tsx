@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useUiPrefs } from '../../hooks/useUiPrefs';
 import type { ItemsView } from '../../lib/uiPrefs';
 import { useUrlState, useUrlText } from '../../hooks/useUrlState';
 import { formatGp, getItemPrices } from '../../lib/itemPrices';
 import {
   aggregateGroupItems,
-  colorForName,
   formatQty,
   formatQtyCompact,
   ITEM_SOURCES,
@@ -14,19 +13,24 @@ import {
   type ItemSource,
   type WireMember,
 } from '../../lib/items';
+import { useMemberColor } from '../../hooks/useMemberColor';
 import { useAlchValues } from '../../lib/alchValues';
 import { useGePrices } from '../../lib/gePrices';
 import { useItemNames } from '../../lib/itemNames';
 import { Dropdown, type DropdownOption } from './Dropdown';
 import { ItemIcon } from './ItemIcon';
 import { BoxGlyph, EmptyState, SearchGlyph } from './EmptyState';
-import type { MemberBadge } from './memberOptions';
+import { memberDropdownOption, type MemberBadge } from './memberOptions';
+import { LoadMoreButton } from './PanelChrome';
 import { Segmented, type SegmentedOption } from './Segmented';
 import { ItemTooltip, useItemTooltip } from './ItemTooltip';
 
 type PriceMode = 'each' | 'stack';
 type Sort = 'qty' | 'name' | 'ge' | 'alch';
 type PricedItem = GroupItem & { stackGe: number; stackAlch: number };
+
+/** Rows rendered at once; a huge maxed bank stays off the DOM until asked for. */
+const PAGE_SIZE = 150;
 
 const SORTS: Array<DropdownOption<Sort>> = [
   { id: 'qty', label: 'Sort: Quantity' },
@@ -146,10 +150,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
     return aggregateGroupItems(rawMembers, sources, includePouch);
   }, [rawMembers, effectiveScope, itemNamesVersion, gePricesVersion, alchVersion]);
 
-  const colorOf = useMemo(() => {
-    const byName = new Map(members.map((m) => [m.name, m.color]));
-    return (name: string) => byName.get(name) ?? colorForName(name);
-  }, [members]);
+  const colorOf = useMemberColor(members);
 
   const players = useMemo(() => {
     const names = new Set<string>();
@@ -162,13 +163,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
   const playerChoices = useMemo<Array<DropdownOption<string>>>(
     () => [
       { id: 'all', label: 'All players' },
-      ...players.map((name) => ({
-        id: name,
-        label: name,
-        icon: (
-          <span className="gms-dot" style={{ background: colorOf(name) }} aria-hidden />
-        ),
-      })),
+      ...players.map((name) => memberDropdownOption(name, colorOf(name))),
     ],
     [players, colorOf],
   );
@@ -222,6 +217,13 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
       ),
     [filtered],
   );
+
+  // Keeps a maxed bank's thousands of rows off the DOM until asked for.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [query, playerFilter, effectiveScope, sort]);
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   const tooltip = useItemTooltip();
   const searching = query.trim().length > 0;
@@ -330,7 +332,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
 
         {filtered.length > 0 && view === 'cards' && (
           <div className="gms-items-grid">
-            {filtered.map((item) => (
+            {visible.map((item) => (
               <ItemCard
                 key={item.id}
                 item={item}
@@ -344,7 +346,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
 
         {filtered.length > 0 && view === 'tiles' && (
           <div className="gms-items-tiles">
-            {filtered.map((item) => (
+            {visible.map((item) => (
               <ItemTile
                 key={item.id}
                 item={item}
@@ -369,7 +371,7 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => (
+              {visible.map((item) => (
                 <ItemRow
                   key={item.id}
                   item={item}
@@ -382,6 +384,13 @@ export function ItemsPanel({ rawMembers, members = [] }: ItemsPanelProps) {
               ))}
             </tbody>
           </table>
+        )}
+
+        {filtered.length > visibleCount && (
+          <LoadMoreButton
+            loading={false}
+            onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+          />
         )}
       </div>
 
@@ -449,7 +458,7 @@ function SplitBar({
  * No tooltip here: a card already shows the totals, the prices and every
  * holder on its face, so hovering one would only repeat it back.
  */
-function ItemCard({
+const ItemCard = memo(function ItemCard({
   item,
   priceMode,
   colorOf,
@@ -481,7 +490,7 @@ function ItemCard({
       <ShareBars item={item} colorOf={colorOf} />
     </article>
   );
-}
+});
 
 /**
  * One bar per holder, each filled to that member's share of the stack and
@@ -521,7 +530,7 @@ function ShareBars({
   );
 }
 
-function ItemTile({
+const ItemTile = memo(function ItemTile({
   item,
   priceMode,
   onHover,
@@ -553,7 +562,7 @@ function ItemTile({
       <TilePill kind="alch">{formatGp(prices.alch)}</TilePill>
     </article>
   );
-}
+});
 
 function TilePill({ kind, children }: { kind: BadgeKind; children: ReactNode }) {
   const meta = BADGES[kind];
@@ -565,7 +574,7 @@ function TilePill({ kind, children }: { kind: BadgeKind; children: ReactNode }) 
   );
 }
 
-function ItemRow({
+const ItemRow = memo(function ItemRow({
   item,
   priceMode,
   colorOf,
@@ -617,4 +626,4 @@ function ItemRow({
       </td>
     </tr>
   );
-}
+});

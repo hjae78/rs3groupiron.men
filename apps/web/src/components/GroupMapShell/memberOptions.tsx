@@ -1,3 +1,4 @@
+import type { DropdownOption } from './Dropdown';
 import type { IconOption } from './IconSelect';
 import { AllMembersIcon, MemberAvatar } from './MemberAvatar';
 
@@ -6,6 +7,15 @@ export type MemberBadge = {
   avatarUrl: string | null;
   color: string;
 };
+
+/** A `Dropdown` option for a member name: label plus a colored dot icon. */
+export function memberDropdownOption(name: string, color: string): DropdownOption<string> {
+  return {
+    id: name,
+    label: name,
+    icon: <span className="gms-dot" style={{ background: color }} aria-hidden />,
+  };
+}
 
 export function memberOption(name: string, members: ReadonlyArray<MemberBadge>): IconOption {
   const member = members.find((m) => m.name === name);

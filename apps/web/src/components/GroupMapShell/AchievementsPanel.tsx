@@ -1,24 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DEMO_GROUP,
   fetchAchievements,
   type Achievement,
   type AchievementKind,
 } from '../../api/groupClient';
-import {
-  DATE_RANGES,
-  dayLabel,
-  rangeBounds,
-  toDayInput,
-  type DateRange,
-} from '../../lib/day';
+import { groupEntriesByDay, toDayInput } from '../../lib/day';
 import { downloadRemoteImage } from '../../lib/download';
-import { downloadCsv, downloadJson } from '../../lib/exportTable';
-import { colorForName } from '../../lib/items';
+import { exportRows } from '../../lib/exportTable';
 import { useItemNames } from '../../lib/itemNames';
 import { SKILL_BY_ID, type SkillId } from '../../lib/skills';
 import { timestamp, toUnix } from '../../lib/time';
-import { usePagedHistory } from '../../hooks/usePagedHistory';
+import { useDayRangeHistory, type DayRangeFetchCtx } from '../../hooks/useDayRangeHistory';
+import { useMemberColor } from '../../hooks/useMemberColor';
 import { useUrlState, useUrlText } from '../../hooks/useUrlState';
 import { Modal } from '../Modal';
 import { DayNav, RANGE_OPTIONS } from './DayNav';
@@ -26,7 +20,7 @@ import { Dropdown, type DropdownOption } from './Dropdown';
 import { ExportMenu, type ExportFormat } from './ExportMenu';
 import { EmptyState, SearchGlyph, TrophyGlyph } from './EmptyState';
 import { ItemIcon } from './ItemIcon';
-import type { MemberBadge } from './memberOptions';
+import { memberDropdownOption, type MemberBadge } from './memberOptions';
 import { LoadMoreButton, PanelStatus } from './PanelChrome';
 import { Segmented } from './Segmented';
 
@@ -82,17 +76,15 @@ export function AchievementsPanel({
   const [kindFilter, setKindFilter] = useUrlState<KindFilter>('kind', 'all', {
     allowed: KIND_FILTERS,
   });
-  const [memberFilter, setMemberFilter] = useUrlState('member', 'all');
   const [query, setQuery] = useUrlText('q');
   const [zoomedId, setZoomedId] = useUrlState('achievement', '', { history: 'push' });
-  const [today] = useState(() => toDayInput(new Date()));
-  const [day, setDay] = useUrlState('day', today);
-  const [range, setRange] = useUrlState<DateRange>('range', '24h', { allowed: DATE_RANGES });
 
   const fetchPage = useCallback(
-    ({ before, limit, signal }: { before?: string; limit: number; signal: AbortSignal }) => {
-      const bounds = rangeBounds(range, day, today);
-      return fetchAchievements(groupName, groupToken, {
+    (
+      { bounds, memberFilter }: DayRangeFetchCtx,
+      { before, limit, signal }: { before?: string; limit: number; signal: AbortSignal },
+    ) =>
+      fetchAchievements(groupName, groupToken, {
         limit,
         before,
         kind: kindFilter === 'all' ? undefined : kindFilter,
@@ -100,18 +92,32 @@ export function AchievementsPanel({
         from: bounds?.from,
         to: bounds?.to,
         signal,
-      });
-    },
-    [groupName, groupToken, kindFilter, memberFilter, range, day, today],
+      }),
+    [groupName, groupToken, kindFilter],
   );
 
-  const { entries: fetched, hasMore, error, loading, oldest, loadMore } =
-    usePagedHistory<Achievement>({
-      fetchPage,
-      pageSize: PAGE_SIZE,
-      errorFallback: 'Failed to load achievements',
-      dataRevision,
-    });
+  const {
+    today,
+    day,
+    setDay,
+    range,
+    setRange,
+    memberFilter,
+    setMemberFilter,
+    entries: fetched,
+    hasMore,
+    error,
+    loading,
+    oldest,
+    loadMore,
+    earliest,
+  } = useDayRangeHistory<Achievement>({
+    fetchPage,
+    pageSize: PAGE_SIZE,
+    errorFallback: 'Failed to load achievements',
+    dataRevision,
+    createdAt,
+  });
 
   // Injected entries skip the API, so the active filters are applied here.
   const entries = useMemo(() => {
@@ -144,19 +150,12 @@ export function AchievementsPanel({
     });
   }, [entries]);
 
-  const colorOf = useMemo(() => {
-    const byName = new Map(members.map((m) => [m.name, m.color]));
-    return (name: string) => byName.get(name) ?? colorForName(name);
-  }, [members]);
+  const colorOf = useMemberColor(members);
 
   const memberChoices = useMemo<Array<DropdownOption<string>>>(
     () => [
       { id: 'all', label: 'All members' },
-      ...knownMembers.map((name) => ({
-        id: name,
-        label: name,
-        icon: <span className="gms-dot" style={{ background: colorOf(name) }} aria-hidden />,
-      })),
+      ...knownMembers.map((name) => memberDropdownOption(name, colorOf(name))),
     ],
     [knownMembers, colorOf],
   );
@@ -172,12 +171,6 @@ export function AchievementsPanel({
     [entries],
   );
 
-  const earliest = useMemo(() => {
-    if (!createdAt) return undefined;
-    const at = new Date(createdAt);
-    return Number.isNaN(at.getTime()) ? undefined : toDayInput(at);
-  }, [createdAt]);
-
   /** Exports what is on screen: when, who, and what they did. */
   const runExport = useCallback(
     (format: ExportFormat) => {
@@ -188,34 +181,18 @@ export function AchievementsPanel({
         achievement: entry.title,
         detail: entry.detail ?? '',
       }));
-      const filename = `${groupName}-achievements-${range}`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-');
-
-      if (format === 'json') {
-        downloadJson(filename, rows);
-        return;
-      }
-      downloadCsv({
-        filename,
+      exportRows(format === 'json' ? 'json' : 'csv', {
+        filenameParts: [groupName, 'achievements', range],
         sheet: 'Achievements',
         headers: ['Time (unix)', 'Member', 'Kind', 'Achievement', 'Detail'],
-        rows: rows.map((r) => [r.at, r.member, r.kind, r.achievement, r.detail]),
+        rows,
+        toCsvRow: (r) => [r.at, r.member, r.kind, r.achievement, r.detail],
       });
     },
     [entries, groupName, range],
   );
 
-  const groups = useMemo(() => {
-    const out: Array<{ day: string; rows: Achievement[] }> = [];
-    for (const entry of entries) {
-      const label = dayLabel(entry.at);
-      const last = out[out.length - 1];
-      if (last && last.day === label) last.rows.push(entry);
-      else out.push({ day: label, rows: [entry] });
-    }
-    return out;
-  }, [entries]);
+  const groups = useMemo(() => groupEntriesByDay(entries), [entries]);
 
   return (
     <section className="gms-panel gms-ach" aria-label="Group achievements" aria-busy={loading}>
@@ -308,7 +285,7 @@ export function AchievementsPanel({
                 key={entry.id}
                 entry={entry}
                 color={colorOf(entry.name)}
-                onZoom={() => setZoomedId(entry.id)}
+                onZoom={setZoomedId}
               />
             ))}
           </div>
@@ -407,14 +384,14 @@ function AchievementIcon({ entry }: { entry: Achievement }) {
   return <KindGlyph kind={entry.kind} />;
 }
 
-function AchievementCard({
+const AchievementCard = memo(function AchievementCard({
   entry,
   color,
   onZoom,
 }: {
   entry: Achievement;
   color: string;
-  onZoom: () => void;
+  onZoom: (id: string) => void;
 }) {
   const [imageBroken, setImageBroken] = useState(false);
   const { absolute, stamp } = timestamp(entry.at, false);
@@ -438,7 +415,12 @@ function AchievementCard({
       </div>
 
       {showImage && entry.image_url && (
-        <button type="button" className="gms-ach-thumb-btn" onClick={onZoom} title="View full image">
+        <button
+          type="button"
+          className="gms-ach-thumb-btn"
+          onClick={() => onZoom(entry.id)}
+          title="View full image"
+        >
           <img
             className="gms-ach-thumb"
             src={entry.image_url}
@@ -457,7 +439,7 @@ function AchievementCard({
       </span>
     </div>
   );
-}
+});
 
 /** Filesystem-safe name for the downloaded screenshot. */
 function downloadName(entry: Achievement) {

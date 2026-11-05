@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEMO_GROUP,
   fetchAchievements,
@@ -9,16 +9,10 @@ import {
   type DropRules,
 } from '../../api/groupClient';
 import { useDismiss } from '../../hooks/useDismiss';
-import { usePagedHistory } from '../../hooks/usePagedHistory';
+import { useDayRangeHistory, type DayRangeFetchCtx } from '../../hooks/useDayRangeHistory';
 import { useUrlState, useUrlText } from '../../hooks/useUrlState';
-import {
-  DATE_RANGES,
-  dayLabel,
-  rangeBounds,
-  toDayInput,
-  type DateRange,
-} from '../../lib/day';
-import { downloadCsv, downloadJson } from '../../lib/exportTable';
+import { groupEntriesByDay, rangeBounds, toDayInput } from '../../lib/day';
+import { exportRows } from '../../lib/exportTable';
 import { colorForName, formatQty } from '../../lib/items';
 import { getItemPrices, formatGp, parseGp } from '../../lib/itemPrices';
 import { lookupItemName, searchItemNames, useItemNames } from '../../lib/itemNames';
@@ -32,7 +26,7 @@ import { ExportMenu, type ExportFormat } from './ExportMenu';
 import { ItemIcon } from './ItemIcon';
 import { LoadMoreButton, PanelStatus } from './PanelChrome';
 import { Segmented, type SegmentedOption } from './Segmented';
-import type { MemberBadge } from './memberOptions';
+import { memberDropdownOption, type MemberBadge } from './memberOptions';
 
 const PAGE_SIZE = 50;
 
@@ -193,19 +187,17 @@ function DropsFeed({
   createdAt?: string;
   injected?: ReadonlyArray<Achievement>;
 }) {
-  const [memberFilter, setMemberFilter] = useUrlState('member', 'all');
   const [query, setQuery] = useUrlText('q');
-  const [today] = useState(() => toDayInput(new Date()));
-  const [day, setDay] = useUrlState('day', today);
-  const [range, setRange] = useUrlState<DateRange>('range', '24h', { allowed: DATE_RANGES });
   const [view, setView] = useUrlState<DropsView>('view', 'list', { allowed: VIEW_VALUES });
   const namesVersion = useItemNames();
   useGePrices();
 
   const fetchPage = useCallback(
-    ({ before, limit, signal }: { before?: string; limit: number; signal: AbortSignal }) => {
-      const bounds = rangeBounds(range, day, today);
-      return fetchAchievements(groupName, groupToken, {
+    (
+      { bounds, memberFilter }: DayRangeFetchCtx,
+      { before, limit, signal }: { before?: string; limit: number; signal: AbortSignal },
+    ) =>
+      fetchAchievements(groupName, groupToken, {
         limit,
         before,
         kind: 'drop',
@@ -213,18 +205,32 @@ function DropsFeed({
         from: bounds?.from,
         to: bounds?.to,
         signal,
-      });
-    },
-    [groupName, groupToken, memberFilter, range, day, today],
+      }),
+    [groupName, groupToken],
   );
 
-  const { entries: fetched, hasMore, error, loading, oldest, loadMore } =
-    usePagedHistory<Achievement>({
-      fetchPage,
-      pageSize: PAGE_SIZE,
-      errorFallback: 'Failed to load rare drops',
-      dataRevision,
-    });
+  const {
+    today,
+    day,
+    setDay,
+    range,
+    setRange,
+    memberFilter,
+    setMemberFilter,
+    entries: fetched,
+    hasMore,
+    error,
+    loading,
+    oldest,
+    loadMore,
+    earliest,
+  } = useDayRangeHistory<Achievement>({
+    fetchPage,
+    pageSize: PAGE_SIZE,
+    errorFallback: 'Failed to load rare drops',
+    dataRevision,
+    createdAt,
+  });
 
   /**
    * Injected entries never went through the API, so the member and range
@@ -250,11 +256,7 @@ function DropsFeed({
   const memberOpts = useMemo<Array<DropdownOption<string>>>(
     () => [
       { id: 'all', label: 'All members' },
-      ...members.map((m) => ({
-        id: m.name,
-        label: m.name,
-        icon: <span className="gms-dot" style={{ background: m.color }} aria-hidden />,
-      })),
+      ...members.map((m) => memberDropdownOption(m.name, m.color)),
     ],
     [members],
   );
@@ -284,12 +286,6 @@ function DropsFeed({
     [entries],
   );
 
-  const earliest = useMemo(() => {
-    if (!createdAt) return undefined;
-    const at = new Date(createdAt);
-    return Number.isNaN(at.getTime()) ? undefined : toDayInput(at);
-  }, [createdAt]);
-
   /** Exports what is on screen: when, who and what dropped. */
   const runExport = useCallback(
     (format: ExportFormat) => {
@@ -300,34 +296,18 @@ function DropsFeed({
         item_id: entry.item_id ?? 0,
         source: entry.detail ?? '',
       }));
-      const filename = `${groupName}-rare-drops-${range}`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-');
-
-      if (format === 'json') {
-        downloadJson(filename, rows);
-        return;
-      }
-      downloadCsv({
-        filename,
+      exportRows(format === 'json' ? 'json' : 'csv', {
+        filenameParts: [groupName, 'rare-drops', range],
         sheet: 'Rare drops',
         headers: ['Time (unix)', 'Member', 'Item', 'Item ID', 'Source'],
-        rows: rows.map((r) => [r.at, r.member, r.item, r.item_id, r.source]),
+        rows,
+        toCsvRow: (r) => [r.at, r.member, r.item, r.item_id, r.source],
       });
     },
     [visible, groupName, range],
   );
 
-  const groups = useMemo(() => {
-    const out: Array<{ day: string; rows: Achievement[] }> = [];
-    for (const entry of visible) {
-      const day = dayLabel(entry.at);
-      const last = out[out.length - 1];
-      if (last && last.day === day) last.rows.push(entry);
-      else out.push({ day, rows: [entry] });
-    }
-    return out;
-  }, [visible]);
+  const groups = useMemo(() => groupEntriesByDay(visible), [visible]);
 
   const summary =
     entries.length === 0
@@ -433,7 +413,7 @@ function DropsFeed({
 }
 
 /** The same drop as a card: art first, then who got it and what it is worth. */
-function DropCard({ entry }: { entry: Achievement }) {
+const DropCard = memo(function DropCard({ entry }: { entry: Achievement }) {
   const { stamp, absolute } = timestamp(entry.at, false);
   const name = entry.item_id != null ? itemLabel(entry.item_id) : entry.title;
   const value = entry.item_id != null ? getItemPrices(entry.item_id).ge : 0;
@@ -465,9 +445,9 @@ function DropCard({ entry }: { entry: Achievement }) {
       </span>
     </article>
   );
-}
+});
 
-function DropRow({ entry }: { entry: Achievement }) {
+const DropRow = memo(function DropRow({ entry }: { entry: Achievement }) {
   const { stamp, absolute } = timestamp(entry.at, false);
   const name = entry.item_id != null ? itemLabel(entry.item_id) : entry.title;
   const value = entry.item_id != null ? getItemPrices(entry.item_id).ge : 0;
@@ -499,7 +479,7 @@ function DropRow({ entry }: { entry: Achievement }) {
       </span>
     </div>
   );
-}
+});
 
 function TrackingPanel({ groupName, groupToken }: { groupName: string; groupToken: string }) {
   const [rules, setRules] = useState<DropRules | null>(null);

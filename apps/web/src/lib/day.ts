@@ -69,3 +69,17 @@ export function shiftDay(day: string, days: number): string {
   if (!y || !m || !d) return day;
   return toDayInput(new Date(y, m - 1, d + days));
 }
+
+/** Buckets already-sorted (newest-first) entries under their day label. */
+export function groupEntriesByDay<T extends { at: string }>(
+  entries: readonly T[],
+): Array<{ day: string; rows: T[] }> {
+  const out: Array<{ day: string; rows: T[] }> = [];
+  for (const entry of entries) {
+    const day = dayLabel(entry.at);
+    const last = out[out.length - 1];
+    if (last && last.day === day) last.rows.push(entry);
+    else out.push({ day, rows: [entry] });
+  }
+  return out;
+}

@@ -34,6 +34,43 @@ export function downloadJson(filename: string, data: unknown) {
   URL.revokeObjectURL(href);
 }
 
+/** `["Group", "rare-drops", "24h"]` -> `group-rare-drops-24h`. */
+function slugFilename(parts: string[]): string {
+  return parts
+    .join('-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-');
+}
+
+/**
+ * The CSV/JSON half of a panel's export menu: slug the filename, then either
+ * dump the rows as JSON or flatten them to a CSV table. `rows` keeps its keys
+ * for JSON; `toCsvRow` picks and orders the columns for CSV.
+ */
+export function exportRows<T>(
+  format: 'csv' | 'json',
+  opts: {
+    filenameParts: string[];
+    sheet: string;
+    headers: string[];
+    rows: T[];
+    toCsvRow: (row: T) => Cell[];
+  },
+) {
+  const filename = slugFilename(opts.filenameParts);
+
+  if (format === 'json') {
+    downloadJson(filename, opts.rows);
+    return;
+  }
+  downloadCsv({
+    filename,
+    sheet: opts.sheet,
+    headers: opts.headers,
+    rows: opts.rows.map(opts.toCsvRow),
+  });
+}
+
 function sheetName(name: string) {
   return name.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31) || 'Sheet1';
 }

@@ -70,6 +70,8 @@ const MAX_SLICES = 10;
 
 /** Module-level response cache so switching tabs doesn't refetch. */
 const CACHE_TTL_MS = 60_000;
+/** Group/period/skill combinations held before expired entries are swept. */
+const CACHE_MAX = 50;
 const historyCache = new Map<string, { at: number; data: XpHistoryResponse }>();
 
 function cacheKey(group: string, period: XpHistoryPeriod, skill: string) {
@@ -84,6 +86,18 @@ function readCache(key: string) {
     return null;
   }
   return hit.data;
+}
+
+function writeCache(key: string, data: XpHistoryResponse) {
+  const now = Date.now();
+  historyCache.set(key, { at: now, data });
+
+  // Otherwise one entry accumulates for every combination ever visited.
+  if (historyCache.size > CACHE_MAX) {
+    for (const [k, entry] of historyCache) {
+      if (now - entry.at >= CACHE_TTL_MS) historyCache.delete(k);
+    }
+  }
 }
 
 type GraphsPanelProps = {
@@ -163,7 +177,7 @@ export function GraphsPanel({
       const settled = await request(async (signal) => {
         if (cached) return cached;
         const next = await fetchXpHistory(groupName, groupToken, period, skill, signal);
-        historyCache.set(key, { at: Date.now(), data: next });
+        writeCache(key, next);
         return next;
       });
       if (!settled) return;
